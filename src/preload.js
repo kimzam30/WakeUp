@@ -1,15 +1,18 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
+const listen = (ch) => (fn) => ipcRenderer.on(ch, (_e, v) => fn(v));
 contextBridge.exposeInMainWorld('hub', {
-  onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
-  ready: () => ipcRenderer.send('ready'),
+  init: () => ipcRenderer.invoke('init'),
+  onStatus: listen('status'),
+  onUnread: listen('unread'),
+  onCmd: listen('cmd'),
+  onFocused: listen('focused'),
+  commit: (layout) => ipcRenderer.send('commit', layout),
   bounds: (b) => ipcRenderer.send('bounds', b),
-  assign: (slot, id) => ipcRenderer.send('assign', { slot, id }),
-  layout: (l) => ipcRenderer.send('layout', l),
-  focus: (i) => ipcRenderer.send('focus', i),
-  maximize: (i) => ipcRenderer.send('maximize', i),
-  sizes: (s) => ipcRenderer.send('sizes', s),
-  nav: (slot, action) => ipcRenderer.send('nav', { slot, action }),
-  dragging: (on) => ipcRenderer.send('dragging', on),
+  cover: (on) => ipcRenderer.send('cover', on),
+  focusView: (id) => ipcRenderer.send('focus-view', id),
+  retry: (id) => ipcRenderer.send('retry', id),
+  retryFailed: () => ipcRenderer.send('retry-failed'),
+  nav: (id, action) => ipcRenderer.send('nav', { id, action }),
 });

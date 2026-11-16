@@ -3,16 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:">
-  <title>Work Hub</title>
+  <title>WakeUp</title>
   <link rel="stylesheet" href="ui.css">
 </head>
 <body>
-  <nav id="sidebar" aria-label="Services">
+  <nav id="sidebar" aria-label="Apps">
+    <div id="brand"></div>
     <div id="services"></div>
     <div class="spacer"></div>
-    <div id="layouts" role="radiogroup" aria-label="Layout"></div>
+    <div id="tools"></div>
   </nav>
-  <main id="stage"></main>
+  <main id="stage">
+    <section id="home" aria-label="Start" hidden></section>
+    <div id="dropzone" hidden></div>
+  </main>
+  <div id="menu" role="menu" aria-label="Layouts" hidden></div>
+  <div id="ghost" hidden></div>
   <script src="ui.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
-  "name": "workhub",
-  "version": "1.0.0",
-  "description": "Ebwise, Outlook, Calendar, To Do and Teams in one split-screen window",
+  "name": "wakeup",
+  "version": "2.0.0",
+  "description": "Ebwise, Outlook, Calendar, To Do and Teams in one flexible window",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -15,13 +15,13 @@
     "electron": "^45.3.3",
     "electron-builder": "^26.18.0"
   },
-  "productName": "Work Hub",
+  "productName": "WakeUp",
   "private": true,
   "build": {
-    "appId": "my.kimzam.workhub",
-    "productName": "Work Hub",
-    "executableName": "workhub",
-    "artifactName": "WorkHub-${version}.AppImage",
+    "appId": "my.kimzam.wakeup",
+    "productName": "WakeUp",
+    "executableName": "wakeup",
+    "artifactName": "WakeUp-${version}.AppImage",
     "files": [
       "src/**/*",
       "build/icons/**/*",
@@ -39,13 +39,13 @@
       "category": "Office",
       "desktop": {
         "entry": {
-          "Name": "Work Hub",
+          "Name": "WakeUp",
           "Comment": "Ebwise, Outlook, Calendar, To Do and Teams side by side",
-          "StartupWMClass": "workhub",
+          "StartupWMClass": "wakeup",
           "Keywords": "mail;teams;outlook;calendar;todo;ebwise;mmu;"
         }
       }
     }
   },
-  "desktopName": "workhub.desktop"
+  "desktopName": "wakeup.desktop"
 }

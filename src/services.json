@@ -13,7 +13,8 @@
     "url": "https://outlook.office.com/mail/",
     "partition": "persist:m365",
     "color": "#0f6cbd",
-    "media": false
+    "media": false,
+    "keepAlive": true
   },
   {
     "id": "calendar",
@@ -37,6 +38,11 @@
     "url": "https://teams.microsoft.com/v2/",
     "partition": "persist:m365",
     "color": "#5b5fc7",
-    "media": true
+    "media": true,
+    "keepAlive": true,
+    "mediaHosts": [
+      "teams.live.com",
+      "teams.cloud.microsoft"
+    ]
   }
 ]
