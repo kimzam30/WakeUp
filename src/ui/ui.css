@@ -1,0 +1,134 @@
+:root {
+  --bg: #ececef;
+  --sidebar: #e3e3e8;
+  --pane: #ffffff;
+  --header: #f6f6f8;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgba(0, 0, 0, 0.1);
+  --accent: #0a84ff;
+  --hover: rgba(0, 0, 0, 0.06);
+  --badge: #ff3b30;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161618;
+    --sidebar: #1f1f22;
+    --pane: #1c1c1e;
+    --header: #242427;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --line: rgba(255, 255, 255, 0.09);
+    --accent: #0a84ff;
+    --hover: rgba(255, 255, 255, 0.07);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  display: flex;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.3 "SF Pro Text", Inter, Cantarell, system-ui, sans-serif;
+  user-select: none;
+}
+
+/* sidebar */
+#sidebar {
+  width: 64px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+}
+#services { display: flex; flex-direction: column; gap: 8px; }
+.spacer { flex: 1; }
+.svc {
+  position: relative;
+  width: 40px; height: 40px;
+  border: 0; border-radius: 11px;
+  display: grid; place-items: center;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.18), inset 0 0 0 0.5px rgba(255,255,255,.25);
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+}
+.svc svg { width: 22px; height: 22px; }
+.svc:hover { transform: scale(1.06); }
+.svc:active { transform: scale(0.96); }
+.svc.visible::before {
+  content: ""; position: absolute; left: -12px; top: 50%;
+  width: 4px; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--muted);
+}
+.svc.focused::before { height: 18px; margin-top: -9px; background: var(--text); }
+.svc .badge {
+  position: absolute; top: -4px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--badge); color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+.svc:focus-visible, .lay:focus-visible, .hbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+#layouts { display: flex; flex-direction: column; gap: 4px; }
+.lay {
+  width: 40px; height: 32px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: grid; place-items: center;
+}
+.lay:hover { background: var(--hover); color: var(--text); }
+.lay[aria-checked="true"] { background: var(--hover); color: var(--accent); }
+.lay svg { width: 22px; height: 16px; }
+
+/* stage */
+#stage { position: relative; flex: 1; }
+.slot {
+  position: absolute;
+  display: flex; flex-direction: column;
+  background: var(--pane);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0,0,0,.08);
+}
+.slot.focused { box-shadow: 0 0 0 1.5px var(--accent), 0 2px 8px rgba(0,0,0,.12); }
+.slot.drop { box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px rgba(10,132,255,.25); }
+.slot header {
+  height: 32px; flex: none;
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 6px 0 10px;
+  background: var(--header);
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+}
+.slot header .dot { width: 8px; height: 8px; border-radius: 4px; margin-right: 8px; flex: none; }
+.slot header .name { font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot header .key { color: var(--muted); font-size: 11px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.hbtn {
+  width: 26px; height: 24px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: grid; place-items: center;
+}
+.hbtn:hover { background: var(--hover); color: var(--text); }
+.hbtn svg { width: 15px; height: 15px; }
+.slot .body { flex: 1; display: grid; place-items: center; color: var(--muted); }
+.slot .body span { opacity: 0; transition: opacity 200ms; }
+body.dragging .slot .body span { opacity: 1; }
+
+.divider { position: absolute; z-index: 2; }
+.divider.v { width: 8px; cursor: col-resize; }
+.divider.h { height: 8px; cursor: row-resize; }
+.divider::after { content: ""; position: absolute; border-radius: 2px; background: transparent; transition: background 120ms; }
+.divider.v::after { left: 3px; top: 40%; bottom: 40%; width: 2px; }
+.divider.h::after { top: 3px; left: 40%; right: 40%; height: 2px; }
+.divider:hover::after, .divider.active::after { background: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

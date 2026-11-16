@@ -1,0 +1,51 @@
+{
+  "name": "workhub",
+  "version": "1.0.0",
+  "description": "Ebwise, Outlook, Calendar, To Do and Teams in one split-screen window",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "icons": "python3 scripts/make-icons.py",
+    "dist": "python3 scripts/make-icons.py && electron-builder --linux AppImage",
+    "install-app": "bash scripts/install.sh"
+  },
+  "author": "kimzam",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0"
+  },
+  "productName": "Work Hub",
+  "private": true,
+  "build": {
+    "appId": "my.kimzam.workhub",
+    "productName": "Work Hub",
+    "executableName": "workhub",
+    "artifactName": "WorkHub-${version}.AppImage",
+    "files": [
+      "src/**/*",
+      "build/icons/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icons",
+      "category": "Office",
+      "desktop": {
+        "entry": {
+          "Name": "Work Hub",
+          "Comment": "Ebwise, Outlook, Calendar, To Do and Teams side by side",
+          "StartupWMClass": "workhub",
+          "Keywords": "mail;teams;outlook;calendar;todo;ebwise;mmu;"
+        }
+      }
+    }
+  },
+  "desktopName": "workhub.desktop"
+}

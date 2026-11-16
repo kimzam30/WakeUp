@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3a40"/>
+      <stop offset="1" stop-color="#1b1b1f"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="t1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4aa3ff"/><stop offset="1" stop-color="#0f6cbd"/></linearGradient>
+    <linearGradient id="t2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b8ff0"/><stop offset="1" stop-color="#5b5fc7"/></linearGradient>
+    <linearGradient id="t3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a4d"/><stop offset="1" stop-color="#e8590c"/></linearGradient>
+    <linearGradient id="t4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5fb0ff"/><stop offset="1" stop-color="#2564cf"/></linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-opacity=".35"/></filter>
+  </defs>
+  <!-- macOS icon grid: 824px squircle inside 1024 canvas -->
+  <g filter="url(#sh)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  </g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3"/>
+  <g>
+    <rect x="212" y="212" width="282" height="282" rx="64" fill="url(#t1)"/>
+    <rect x="530" y="212" width="282" height="282" rx="64" fill="url(#t2)"/>
+    <rect x="212" y="530" width="282" height="282" rx="64" fill="url(#t3)"/>
+    <rect x="530" y="530" width="282" height="282" rx="64" fill="url(#t4)"/>
+  </g>
+  <!-- glyphs: mail, people, cap, check -->
+  <g fill="#fff">
+    <path d="M276 308h154a14 14 0 0 1 14 14v100a14 14 0 0 1-14 14H276a14 14 0 0 1-14-14V322a14 14 0 0 1 14-14zm4 22v6l73 46 73-46v-6zm0 28v58h146v-58l-73 46z"/>
+    <circle cx="645" cy="310" r="34"/><circle cx="728" cy="322" r="24"/>
+    <path d="M581 430c0-38 29-64 64-64s64 26 64 64v12H581zm141-50c30 2 50 22 50 48v14h-48v-12c0-18-6-35-17-48 5-2 10-2 15-2z"/>
+    <path d="M353 590 262 636l91 46 74-37v52h16v-60z"/><path d="M299 664v34c0 18 24 32 54 32s54-14 54-32v-34l-54 27z"/>
+    <path d="m625 702-44-44-17 17 61 61 112-112-17-17z"/>
+  </g>
+</svg>
