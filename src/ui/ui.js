@@ -28,12 +28,35 @@ const BTN = {
   warn: S16('M8 2.5 14 13H2zM8 6.5v3M8 11.3v.2'),
   offline: S16('M2 6a9 9 0 0 1 12 0M4.3 8.5a5.5 5.5 0 0 1 7.4 0M6.6 11a2 2 0 0 1 2.8 0M2.5 2.5l11 11'),
   pause: S16('M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5v3l2 1.5'),
+  download: S16('M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10'),
+  settings: S16('M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6M10 2.5v4M6 9.5v4'),
 };
 // WakeUp mark: the app icon's looping W + sparks (1024 grid, cropped by MARK_VB).
 const MARK = '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path stroke-width="74" d="M282 372C298 540 336 690 398 690C452 690 470 572 492 520C506 486 536 470 552 492C568 516 546 546 520 534C500 524 506 486 532 488C566 560 572 690 628 690C690 690 716 540 732 372"/><path stroke-width="56" d="M722 236L742 184M790 278L834 246M818 350L870 340"/></g>';
 const MARK_VB = '230 140 690 600';
 const svg = (body, vb = '0 0 24 24', fill = 'currentColor') => `<svg viewBox="${vb}" fill="${fill}" aria-hidden="true">${body}</svg>`;
 const btnSvg = (k) => svg(BTN[k], '0 0 16 16', 'none');
+const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+// App glyph: built-in icon, a custom app's favicon, or its first letter.
+function glyph(svc) {
+  if (ICONS[svc.id]) return svg(ICONS[svc.id]);
+  if (svc.icon) return `<img class="fav" src="${esc(svc.icon)}" alt="">`;
+  return `<span class="letter">${esc((svc.name.trim()[0] || '?').toUpperCase())}</span>`;
+}
+const KEYS_HTML = `<dl class="keys">
+  <div><dt><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open or focus an app</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>W</kbd></dt><dd>Close pane</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>F</kbd></dt><dd>Find in page</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>M</kbd></dt><dd>Zoom pane</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Tab</kbd></dt><dd>Next pane</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>J</kbd></dt><dd>Downloads</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>O</kbd></dt><dd>Pop out / dock back</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>,</kbd></dt><dd>Settings</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd></dt><dd>Tiled ↔ free-floating</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd></dt><dd>Next layout</dd></div>
+  <div><dt>Drag a pane’s title</dt><dd>Edge to split, centre to swap</dd></div>
+  <div><dt>Right-click a link</dt><dd>Open in browser, copy, save</dd></div>
+</dl>`;
 
 // ---------- tiny helpers ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -108,7 +131,10 @@ function presetThumb(p) {
 }
 
 // ---------- state ----------
-let SV = []; let BY = {};
+let SV = []; let BY = {}; let ALL = []; // shown apps, all apps by id, all apps in order
+let SET = {}; let META = {};
+const DL = new Map(); // downloads by id
+let settingsOpen = false; let dlOpen = false;
 let L = { mode: 'tile', tile: null, free: [], alive: [], popped: [], focused: null, zoomed: null };
 let last = null;
 const status = {}; const unread = {}; const statusInfo = {};
@@ -166,6 +192,7 @@ function render(dragFrame = false) {
   geometry();
   document.body.classList.toggle('mode-free', L.mode === 'free');
   document.body.classList.toggle('zoomed', !!L.zoomed);
+  document.body.classList.toggle('compact', !!SET.compact);
   const home = showHome();
   $('#home').hidden = !home;
   if (home && !dragFrame) renderHome();
@@ -196,7 +223,7 @@ function render(dragFrame = false) {
   }
   for (const [k, el] of divEls) if (!keep.has(k) && !el.classList.contains('active')) { el.remove(); divEls.delete(k); }
   if (!dragFrame) updateSidebar();
-  setCover(home || menuOpen || dragging);
+  setCover(home || menuOpen || dragging || settingsOpen || dlOpen);
   queueBounds();
 }
 
@@ -227,14 +254,14 @@ function paneEl(id) {
   const b = (a, label, key) => `<button class="hbtn" data-a="${a}" title="${label}${key ? ` (${key})` : ''}" aria-label="${label}">${btnSvg(a)}</button>`;
   el.innerHTML = `
     <header>
-      <span class="glyph">${svg(ICONS[id] || '<circle cx="12" cy="12" r="6"/>')}</span>
+      <span class="glyph">${glyph(svc)}</span>
       <span class="name"></span>
       <span class="progress" aria-hidden="true"></span>
       ${b('back', 'Back')}${b('reload', 'Reload', 'Ctrl+R')}${b('external', 'Open in browser')}
       <span class="sep"></span>
       ${b('popout', 'Pop out to its own window', 'Ctrl+Shift+O')}${b('zoom', 'Zoom', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}
     </header>
-    <div class="body"><span class="ghost-glyph">${svg(ICONS[id] || '')}</span><div class="state" role="status" aria-live="polite"></div></div>
+    <div class="body"><span class="ghost-glyph">${glyph(svc)}</span><div class="state" role="status" aria-live="polite"></div></div>
     ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((e) => `<div class="rh ${e}" data-e="${e}"></div>`).join('')}`;
   $('.name', el).textContent = svc.name;
   el.querySelectorAll('.hbtn').forEach((btn) => {
@@ -249,6 +276,8 @@ function paneEl(id) {
     });
   });
   const header = $('header', el);
+  el._find = FindBar(id, header, (open) => el.classList.toggle('finding', open));
+  $('.name', el).after(el._find.node);
   header.addEventListener('pointerdown', (e) => headerDown(e, id));
   header.addEventListener('dblclick', () => toggleZoom(id));
   el.addEventListener('pointerdown', () => focusPane(id));
@@ -287,11 +316,22 @@ function renderStatus(id) {
 // ---------- sidebar ----------
 const sideBtns = new Map();
 function buildSidebar() {
-  const home = h('button', { class: 'home', title: 'Start screen (Ctrl+Shift+H)', 'aria-label': 'Start screen' }, svg(MARK, MARK_VB, 'none'));
-  home.onclick = () => { homeOpen = !homeOpen || visible().length === 0; render(); };
-  $('#brand').append(home);
+  if (!$('#brand .home')) {
+    const home = h('button', { class: 'home', title: 'Start screen (Ctrl+Shift+H)', 'aria-label': 'Start screen' }, svg(MARK, MARK_VB, 'none'));
+    home.onclick = () => { if (settingsOpen) toggleSettings(false); homeOpen = !homeOpen || visible().length === 0; render(); };
+    $('#brand').append(home);
+    const dl = h('button', { class: 'tool', id: 'dlBtn', title: 'Downloads (Ctrl+J)', 'aria-label': 'Downloads', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }, btnSvg('download'));
+    dl.append(h('span', { class: 'badge', hidden: true }));
+    dl.onclick = (e) => { e.stopPropagation(); toggleDownloads(); };
+    const lay = h('button', { class: 'tool', id: 'layoutsBtn', title: 'Layouts (Ctrl+Shift+L)', 'aria-label': 'Layouts', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, btnSvg('layouts'));
+    lay.onclick = (e) => { e.stopPropagation(); toggleMenu(undefined, e.detail === 0); };
+    const set = h('button', { class: 'tool', id: 'setBtn', title: 'Settings (Ctrl+,)', 'aria-label': 'Settings' }, btnSvg('settings'));
+    set.onclick = () => toggleSettings();
+    $('#tools').append(dl, lay, set);
+  }
+  $('#services').replaceChildren(); sideBtns.clear();
   SV.forEach((svc, i) => {
-    const b = h('button', { class: 'svc', title: `${svc.name}  (Ctrl+${i + 1})`, 'aria-label': svc.name }, svg(ICONS[svc.id] || '<circle cx="12" cy="12" r="6"/>'));
+    const b = h('button', { class: 'svc', title: `${svc.name}${i < 9 ? `  (Ctrl+${i + 1})` : ''}`, 'aria-label': svc.name }, glyph(svc));
     b.style.setProperty('--svc', svc.color);
     b.append(h('span', { class: 'badge', hidden: true }));
     b.addEventListener('pointerdown', (e) => dragSource(e, svc.id));
@@ -300,9 +340,6 @@ function buildSidebar() {
     $('#services').append(b);
     sideBtns.set(svc.id, b);
   });
-  const lay = h('button', { class: 'tool', id: 'layoutsBtn', title: 'Layouts (Ctrl+Shift+L)', 'aria-label': 'Layouts', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, btnSvg('layouts'));
-  lay.onclick = (e) => { e.stopPropagation(); toggleMenu(undefined, e.detail === 0); };
-  $('#tools').append(lay);
 }
 function updateSidebar() {
   const vis = shown();
@@ -315,14 +352,17 @@ function updateSidebar() {
     const n = unread[id] || 0; const badge = $('.badge', b);
     badge.hidden = !n; badge.textContent = n > 99 ? '99+' : String(n);
     const st = L.popped.includes(id) ? ' — in its own window' : status[id] === 'sleeping' ? ' — sleeping' : L.alive.includes(id) && !vis.includes(id) ? ' — in background' : '';
-    b.title = `${BY[id].name}${st}  (Ctrl+${SV.indexOf(BY[id]) + 1})${L.alive.includes(id) ? ' · middle-click to close' : ''}`;
+    const k = SV.findIndex((s) => s.id === id);
+    b.title = `${BY[id].name}${st}${k < 9 ? `  (Ctrl+${k + 1})` : ''}${L.alive.includes(id) ? ' · middle-click to close' : ''}`;
   }
-  $('#brand .home').classList.toggle('active', showHome());
+  $('#brand .home').classList.toggle('active', showHome() && !settingsOpen);
+  $('#setBtn').classList.toggle('active', settingsOpen);
 }
 
 // ---------- layout menu ----------
 function toggleMenu(force, viaKeyboard = false) {
   menuOpen = force ?? !menuOpen;
+  if (menuOpen && dlOpen) toggleDownloads(false);
   const m = $('#menu');
   m.hidden = !menuOpen;
   $('#layoutsBtn').setAttribute('aria-expanded', String(menuOpen));
@@ -336,7 +376,10 @@ function toggleMenu(force, viaKeyboard = false) {
   }
   render();
 }
-document.addEventListener('pointerdown', (e) => { if (menuOpen && !e.target.closest('#menu, #layoutsBtn')) toggleMenu(false); });
+document.addEventListener('pointerdown', (e) => {
+  if (menuOpen && !e.target.closest('#menu, #layoutsBtn')) toggleMenu(false);
+  if (dlOpen && !e.target.closest('#downloads, #dlBtn')) toggleDownloads(false);
+});
 
 // ---------- start screen ----------
 const pick = new Set();
@@ -352,19 +395,10 @@ function renderHome() {
         <div class="picker" role="group" aria-label="Apps to open"></div>
         <div class="arrange"><span class="lbl">Arrange as</span><div class="presets" role="radiogroup" aria-label="Layout"></div></div>
         <div class="cta"><button class="btn primary big" id="openBtn"></button><button class="btn big" id="restoreBtn">Restore last workspace</button><button class="btn big" id="backBtn">Back to workspace</button></div>
-        <dl class="keys">
-          <div><dt><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Open or focus an app</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>W</kbd></dt><dd>Close pane</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>M</kbd></dt><dd>Zoom pane</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>Tab</kbd></dt><dd>Next pane</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>O</kbd></dt><dd>Pop out / dock back</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd></dt><dd>Tiled ↔ free-floating</dd></div>
-          <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd></dt><dd>Next layout</dd></div>
-          <div><dt>Drag a pane’s title</dt><dd>Edge to split, centre to swap</dd></div>
-        </dl>
+        ${KEYS_HTML}
       </div>`;
     SV.forEach((svc, i) => {
-      const b = h('button', { class: 'pick', 'aria-pressed': 'false' }, `<span class="tile">${svg(ICONS[svc.id] || '')}</span><span class="nm"></span><span class="k">Ctrl ${i + 1}</span><span class="tick">${svg(S16('M3.5 8.5l3 3 6-7'), '0 0 16 16', 'none')}</span>`);
+      const b = h('button', { class: 'pick', 'aria-pressed': 'false' }, `<span class="tile">${glyph(svc)}</span><span class="nm"></span><span class="k">${i < 9 ? `Ctrl ${i + 1}` : ''}</span><span class="tick">${svg(S16('M3.5 8.5l3 3 6-7'), '0 0 16 16', 'none')}</span>`);
       b.style.setProperty('--svc', svc.color);
       $('.nm', b).textContent = svc.name;
       b.onclick = () => { if (pick.has(svc.id)) pick.delete(svc.id); else pick.add(svc.id); pickPreset = null; renderHome(); };
@@ -375,7 +409,8 @@ function renderHome() {
     $('#openBtn', el).onclick = openPicked;
     $('#restoreBtn', el).onclick = restoreLast;
     $('#backBtn', el).onclick = () => { homeOpen = false; render(); };
-    if (!pick.size) (last?.alive?.length ? last.alive : visible().length ? visible() : ['ebwise', 'teams']).filter((id) => BY[id]).forEach((id) => pick.add(id));
+    for (const id of [...pick]) if (!BY[id] || BY[id].hidden) pick.delete(id);
+    if (!pick.size) (last?.alive?.length ? last.alive : visible().length ? visible() : ['ebwise', 'teams']).filter((id) => BY[id] && !BY[id].hidden).forEach((id) => pick.add(id));
   }
   $('h1', el).textContent = greeting();
   el.querySelectorAll('.pick').forEach((b) => b.setAttribute('aria-pressed', String(pick.has(b.dataset.id))));
@@ -389,7 +424,7 @@ function renderHome() {
   ob.disabled = !n;
   ob.textContent = n ? `Open ${n === 1 ? BY[[...pick][0]].name : `${n} apps`}` : 'Pick at least one app';
   const hasPanes = visible().length > 0;
-  $('#restoreBtn', el).hidden = hasPanes || !last || !(last.alive || []).some((id) => BY[id]);
+  $('#restoreBtn', el).hidden = hasPanes || !last || !(last.alive || []).some((id) => BY[id] && !BY[id].hidden);
   $('#backBtn', el).hidden = !hasPanes;
 }
 function openPicked() {
@@ -412,7 +447,7 @@ function restoreLast() {
   let tile = last.tile;
   for (const id of L.popped) tile = removeLeaf(tile, id);
   Object.assign(L, { mode: last.mode === 'free' ? 'free' : 'tile', tile, free: (last.free || []).filter((p) => !L.popped.includes(p.id)), zoomed: null });
-  L.alive = uniq([...(last.alive || []).filter((id) => BY[id]), ...L.alive]);
+  L.alive = uniq([...(last.alive || []).filter((id) => BY[id] && !BY[id].hidden), ...L.alive]);
   commit();
 }
 
@@ -424,8 +459,9 @@ function focusPane(id) {
   commit();
 }
 function openPane(id, at) {
-  if (!BY[id]) return;
+  if (!BY[id] || BY[id].hidden) return;
   homeOpen = false;
+  if (settingsOpen) toggleSettings(false);
   if (L.popped.includes(id)) { hub.focusView(id); return; }
   if (visible().includes(id)) { if (L.zoomed && L.zoomed !== id) L.zoomed = id; focusPane(id); hub.focusView(id); render(); return; }
   L.zoomed = null;
@@ -650,7 +686,7 @@ function armDrag(e, id, onClick) {
     if (!live) {
       if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
       live = true; dragging = true;
-      ghost.innerHTML = `${svg(ICONS[id] || '')}<span></span>`; $('span', ghost).textContent = BY[id].name;
+      ghost.innerHTML = `<i class="gg">${glyph(BY[id])}</i><span></span>`; $('span', ghost).textContent = BY[id].name;
       ghost.style.setProperty('--svc', BY[id].color);
       ghost.hidden = false;
       document.body.classList.add('dragging');
@@ -729,12 +765,42 @@ hub.onCmd(({ name, arg }) => {
   else if (name === 'mode') toggleMode();
   else if (name === 'preset') nextPreset();
   else if (name === 'cycle') cycle(arg);
-  else if (name === 'home') { homeOpen = !homeOpen || !visible().length; render(); }
+  else if (name === 'home') { if (settingsOpen) toggleSettings(false); homeOpen = !homeOpen || !visible().length; render(); }
+  else if (name === 'settings') toggleSettings(true);
+  else if (name === 'downloads') toggleDownloads();
+  else if (name === 'find') findIn(arg);
 });
+function findIn(id) {
+  if (!BY[id] || L.popped.includes(id)) return;
+  if (settingsOpen) toggleSettings(false);
+  if (!shown().includes(id)) openPane(id);
+  homeOpen = false; render();
+  paneEls.get(id)?._find.open();
+}
+hub.onFound((r) => paneEls.get(r.id)?._find.found(r));
+hub.onDownload(onDownload);
+hub.onSettings((p) => applyPayload(p));
+// Settings or the app list changed in main: adopt its (validated) apps, settings and layout.
+function applyPayload(p) {
+  const before = ALL.map((s) => `${s.id}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.hidden}`).join();
+  ALL = p.services; SV = ALL.filter((s) => !s.hidden); BY = Object.fromEntries(ALL.map((x) => [x.id, x]));
+  SET = p.settings; META = { version: p.version, autostart: p.autostart, defaultDownloadDir: p.defaultDownloadDir };
+  if (p.layout) Object.assign(L, p.layout);
+  for (const [id, el] of paneEls) if (!L.alive.includes(id)) { el.remove(); paneEls.delete(id); }
+  if (before !== ALL.map((s) => `${s.id}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.hidden}`).join()) {
+    buildSidebar();
+    $('#home').dataset.built = '';
+    for (const [id, el] of paneEls) { el.remove(); paneEls.delete(id); } // re-created with the new name/icon
+  }
+  if (settingsOpen) renderSettings();
+  render();
+}
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (menuOpen) toggleMenu(false);
+  if (dlOpen) toggleDownloads(false);
+  else if (settingsOpen) { if (e.target.closest?.('.app-form')) return; toggleSettings(false); }
+  else if (menuOpen) toggleMenu(false);
   else if (homeOpen && visible().length) { homeOpen = false; render(); }
 });
 window.addEventListener('online', () => { hub.retryFailed(); for (const id of Object.keys(status)) if (status[id] === 'error') renderStatus(id); });
@@ -742,11 +808,14 @@ window.addEventListener('offline', () => { for (const id of Object.keys(status))
 new ResizeObserver(() => render()).observe(stage);
 
 hub.init().then((s) => {
-  SV = s.services; BY = Object.fromEntries(SV.map((x) => [x.id, x]));
-  Object.assign(L, s.layout); last = s.last;
+  last = s.last;
   Object.assign(status, s.status); Object.assign(unread, s.unread);
-  buildSidebar();
+  for (const d of s.downloads) DL.set(d.id, d);
+  $('#downloads').addEventListener('click', onDownloadsClick);
+  applyPayload(s); // apps, settings, layout; builds the sidebar
   commit(); // also re-opens popped-out windows
+  renderDlButton();
+  if (s.openSettings) toggleSettings(true);
 }).catch((e) => {
   document.body.innerHTML = `<div class="fatal"><h1>WakeUp couldn’t start its layout</h1><p></p><p>Quit from the tray and open it again. Details are in ~/.config/WakeUp/logs.</p></div>`;
   $('.fatal p').textContent = String(e && e.message || e);

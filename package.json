@@ -1,12 +1,13 @@
 {
   "name": "wakeup",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Ebwise, Outlook, Calendar, To Do and Teams in one flexible window",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "icons": "python3 scripts/make-icons.py",
-    "dist": "python3 scripts/make-icons.py && electron-builder --linux AppImage",
+    "dist": "python3 scripts/make-icons.py && electron-builder --linux dir",
+    "dist:appimage": "python3 scripts/make-icons.py && electron-builder --linux AppImage",
     "install-app": "bash scripts/install.sh"
   },
   "author": "kimzam",
@@ -33,7 +34,7 @@
     },
     "linux": {
       "target": [
-        "AppImage"
+        "dir"
       ],
       "icon": "build/icons",
       "category": "Office",
@@ -45,7 +46,11 @@
           "Keywords": "mail;teams;outlook;calendar;todo;ebwise;mmu;"
         }
       }
-    }
+    },
+    "electronLanguages": [
+      "en-US"
+    ],
+    "compression": "maximum"
   },
   "desktopName": "wakeup.desktop"
 }

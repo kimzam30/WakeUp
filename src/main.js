@@ -1,6 +1,6 @@
 'use strict';
 const {
-  app, BrowserWindow, WebContentsView, ipcMain, session, shell, Tray, Menu,
+  app, BrowserWindow, WebContentsView, ipcMain, session, shell, Tray, Menu, clipboard, dialog,
   nativeImage, nativeTheme, desktopCapturer, screen, Notification,
 } = require('electron');
 const path = require('node:path');
@@ -25,7 +25,6 @@ else {
   try { if (!fs.existsSync(dir) && fs.existsSync(legacy)) fs.renameSync(legacy, dir); } catch (e) { console.error('could not move old profile', e); }
   app.setPath('userData', dir);
 }
-if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 // ---- logging: errors go to ~/.config/WakeUp/logs/main.log (rotated at 1 MB) instead of crashing the app
 const LOG_DIR = path.join(app.getPath('userData'), 'logs');
@@ -42,38 +41,124 @@ function log(...parts) {
 process.on('uncaughtException', (e) => log('uncaught', e));
 process.on('unhandledRejection', (e) => log('unhandled rejection', e));
 
-const SERVICES = require('./services.json');
-const byId = Object.fromEntries(SERVICES.map((s) => [s.id, s]));
-const valid = (id) => typeof id === 'string' && Object.hasOwn(byId, id);
 const ICON = path.join(__dirname, '..', 'build', 'icons', '512x512.png');
 const BG = () => (nativeTheme.shouldUseDarkColors ? '#161618' : '#ececef');
+const UI = (f) => path.join(__dirname, 'ui', f);
 
 // Chrome UA without "Electron/x" and app tokens, so Teams/Outlook treat us as Chrome.
 const UA = app.userAgentFallback
   .replace(/\sElectron\/\S+/, '')
   .replace(/\s(wakeup|work-?hub|Work Hub)\/\S+/i, '');
 
+function safeUrl(u) { try { return new URL(u); } catch { return null; } }
 const hostIn = (url, hosts) => {
-  try {
-    const { hostname } = new URL(url);
-    return hosts.some((h) => hostname === h || hostname.endsWith('.' + h));
-  } catch { return false; }
+  const u = safeUrl(url); if (!u) return false;
+  return hosts.some((h) => u.hostname === h || u.hostname.endsWith('.' + h));
 };
-// Hosts allowed to navigate/open popups inside the app (sign-in flows). Everything else opens in the default browser.
+const isHttp = (url) => /^https?:\/\//i.test(url || '');
+// Hosts allowed to navigate inside the built-in apps (sign-in flows). Everything else follows the Links setting.
 const INTERNAL_HOSTS = [
   'microsoftonline.com', 'microsoft.com', 'office.com', 'office.net', 'office365.com',
   'live.com', 'microsoftazuread-sso.com', 'sharepoint.com', 'skype.com', 'cloud.microsoft',
   'mmu.edu.my',
 ];
-const isInternal = (url) => url.startsWith('about:') || hostIn(url, INTERNAL_HOSTS);
-// Camera/mic/screen only for services flagged "media" in services.json (Teams).
-const MEDIA_HOSTS = [...new Set(SERVICES.filter((s) => s.media).flatMap((s) => [new URL(s.url).hostname, ...(s.mediaHosts || [])]))];
-const isMediaHost = (url) => hostIn(url, MEDIA_HOSTS);
+// Sign-in pages: keep them in a small popup so the page that opened them can finish signing in.
+const AUTH_HOSTS = ['login.microsoftonline.com', 'login.microsoft.com', 'login.live.com', 'account.live.com', 'microsoftazuread-sso.com', 'accounts.google.com', 'appleid.apple.com'];
+const isAuth = (url) => hostIn(url, AUTH_HOSTS);
+const isTeamsLink = (url) => hostIn(url, ['teams.microsoft.com', 'teams.cloud.microsoft']) && /^\/l\//.test(safeUrl(url)?.pathname || '');
+// Ebwise (Moodle) course files: opening them in the pane would replace the course page.
+const isDocNav = (url) => hostIn(url, ['mmu.edu.my']) && /\/(pluginfile\.php|mod\/resource\/view\.php)/.test(safeUrl(url)?.pathname || '');
 
-// ---- persisted state (v2)
+// ---- services: built-ins from services.json plus the user's own apps (Settings → Apps)
+const BUILTIN = require('./services.json');
+const BUILTIN_IDS = BUILTIN.map((s) => s.id);
+let SERVICES = []; let byId = {};
+const valid = (id) => typeof id === 'string' && Object.hasOwn(byId, id) && !byId[id].hidden;
+// Camera/mic/screen only for services flagged "media" in services.json (Teams).
+const MEDIA_HOSTS = [...new Set(BUILTIN.filter((s) => s.media).flatMap((s) => [new URL(s.url).hostname, ...(s.mediaHosts || [])]))];
+const isMediaHost = (url) => hostIn(url, MEDIA_HOSTS);
+const isInternal = (url, svc) => url.startsWith('about:') || hostIn(url, INTERNAL_HOSTS) || (!!svc?.hosts && hostIn(url, svc.hosts));
+
+function rebuildServices(s) {
+  const custom = s.customApps.map((c) => ({
+    id: c.id, name: c.name, url: c.url, color: c.color, icon: c.icon || null, custom: true, own: c.own,
+    partition: c.own ? `persist:${c.id}` : 'persist:m365',
+    hosts: [new URL(c.url).hostname.replace(/^www\./, '')],
+  }));
+  const all = [...BUILTIN, ...custom];
+  const rank = (id) => { const i = s.order.indexOf(id); return i < 0 ? 1000 + all.findIndex((x) => x.id === id) : i; };
+  SERVICES = all
+    .map((x) => ({ ...x, hidden: s.hidden.includes(x.id), keepAlive: s.keepAlive[x.id] ?? !!x.keepAlive }))
+    .sort((a, b) => rank(a.id) - rank(b.id));
+  byId = Object.fromEntries(SERVICES.map((x) => [x.id, x]));
+}
+const shownServices = () => SERVICES.filter((s) => !s.hidden);
+
+// ---- settings (validated on load and on every change, so a bad value can never crash the app)
+const settingsDefaults = () => ({
+  launch: 'last', startHidden: false, onClose: 'tray',
+  sleepMinutes: 10, sleepWhenHidden: true,
+  hidden: [], order: [], notify: {}, keepAlive: {},
+  downloadDir: '', askDownload: false, openDownload: false, notifyDownload: true,
+  externalLinks: 'browser', docLinks: 'window',
+  theme: 'system', zoom: 100, compact: false,
+  customApps: [],
+});
+const oneOf = (v, list, d) => (list.includes(v) ? v : d);
+const bool = (v, d) => (typeof v === 'boolean' ? v : d);
+const text = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+const num = (v, lo, hi, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+function cleanCustomApps(list) {
+  const out = []; const seen = new Set();
+  for (const c of Array.isArray(list) ? list.slice(0, 20) : []) {
+    if (!isObj(c)) continue;
+    const name = text(c.name, 32);
+    const u = safeUrl(text(c.url, 2000));
+    if (!name || !u || u.protocol !== 'https:') continue;
+    let id = typeof c.id === 'string' && /^c-[a-z0-9-]{1,40}$/.test(c.id) ? c.id : '';
+    if (!id || seen.has(id)) id = `c-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'app'}-${Math.random().toString(36).slice(2, 6)}`;
+    seen.add(id);
+    const icon = typeof c.icon === 'string' && c.icon.length < 90000 && /^data:image\/(png|x-icon|vnd\.microsoft\.icon|jpeg|webp|gif|svg\+xml);base64,[a-z0-9+/=]+$/i.test(c.icon) ? c.icon : null;
+    out.push({ id, name, url: u.href, color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#5e6ad2', own: c.own !== false, icon });
+  }
+  return out;
+}
+function cleanSettings(raw, legacy = {}) {
+  const d = settingsDefaults();
+  const r = isObj(raw) ? raw : {};
+  const customApps = cleanCustomApps(r.customApps);
+  const ids = [...BUILTIN_IDS, ...customApps.map((c) => c.id)];
+  const idList = (v) => [...new Set((Array.isArray(v) ? v : []).filter((id) => ids.includes(id)))];
+  const idMap = (v) => Object.fromEntries(Object.entries(isObj(v) ? v : {}).filter(([k, b]) => ids.includes(k) && typeof b === 'boolean'));
+  const dir = text(r.downloadDir, 1000);
+  return {
+    launch: ['home', 'last'].includes(r.launch) || ids.includes(r.launch) ? r.launch : d.launch,
+    startHidden: bool(r.startHidden, d.startHidden),
+    onClose: oneOf(r.onClose, ['tray', 'minimize', 'quit'], legacy.closeToTray === false ? 'quit' : d.onClose),
+    sleepMinutes: Math.round(num(r.sleepMinutes ?? legacy.sleepMinutes, 0, 1440, d.sleepMinutes)),
+    sleepWhenHidden: bool(r.sleepWhenHidden, d.sleepWhenHidden),
+    hidden: idList(r.hidden).slice(0, ids.length - 1), // at least one app stays visible
+    order: idList(r.order),
+    notify: idMap(r.notify),
+    keepAlive: idMap(r.keepAlive),
+    downloadDir: path.isAbsolute(dir) ? dir : '',
+    askDownload: bool(r.askDownload, d.askDownload),
+    openDownload: bool(r.openDownload, d.openDownload),
+    notifyDownload: bool(r.notifyDownload, d.notifyDownload),
+    externalLinks: oneOf(r.externalLinks, ['browser', 'window'], d.externalLinks),
+    docLinks: oneOf(r.docLinks, ['window', 'browser'], d.docLinks),
+    theme: oneOf(r.theme, ['system', 'light', 'dark'], d.theme),
+    zoom: Math.round(num(r.zoom, 50, 200, d.zoom)),
+    compact: bool(r.compact, d.compact),
+    customApps,
+  };
+}
+
+// ---- persisted state (v3 = v2 layout + settings)
 const STATE_FILE = path.join(app.getPath('userData'), 'state.json');
 const defaults = () => ({
-  v: 2,
+  v: 3,
   mode: 'tile', // 'tile' | 'free'
   tile: null, // split tree: {dir:'h'|'v', sizes:[fractions], children:[...]} | {pane:id}
   free: [], // [{id, x, y, w, h}] in % of the stage, last = topmost
@@ -83,10 +168,11 @@ const defaults = () => ({
   zoomed: null,
   last: null, // last non-empty workspace, for "Restore" on the start screen
   popBounds: {},
+  docBounds: null, // size of document/link windows
   window: { width: 1600, height: 1000 },
-  closeToTray: true,
-  sleepMinutes: 10,
   toldAboutTray: false,
+  downloads: [], // last finished downloads, newest first
+  settings: settingsDefaults(),
 });
 
 function cleanTree(n, seen) {
@@ -113,7 +199,6 @@ function cleanTree(n, seen) {
 }
 const leaves = (n) => (!n ? [] : n.pane ? [n.pane] : n.children.flatMap(leaves));
 const uniq = (a) => [...new Set((Array.isArray(a) ? a : []).filter(valid))];
-const num = (v, lo, hi, d) => (v != null && Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
 
 // Validate anything coming from disk or the renderer, so a bad value can never crash the app.
 function cleanLayout(l) {
@@ -127,6 +212,7 @@ function cleanLayout(l) {
   const pick = (v) => (valid(v) && alive.includes(v) ? v : null);
   return { mode: l.mode === 'free' ? 'free' : 'tile', tile, free, alive, popped, focused: pick(l.focused), zoomed: pick(l.zoomed) };
 }
+const single = (id) => ({ mode: 'tile', tile: { pane: id }, free: [], alive: [id], popped: [], focused: id, zoomed: null });
 
 // v1 stored {layout, slots, sizes, maximized}; turn it into the equivalent split tree.
 function migrateV1(raw) {
@@ -147,29 +233,40 @@ function migrateV1(raw) {
   const zoomed = Number.isInteger(raw.maximized) ? ids[raw.maximized] : null;
   return { tile, alive: ids, focused: ids[raw.focused] ?? ids[0] ?? null, zoomed };
 }
+const cleanDownloads = (list) => (Array.isArray(list) ? list : [])
+  .filter((d) => isObj(d) && typeof d.id === 'string' && typeof d.path === 'string' && path.isAbsolute(d.path))
+  .slice(0, 20)
+  .map((d) => ({
+    id: d.id, name: text(d.name, 300) || path.basename(d.path), path: d.path,
+    url: typeof d.url === 'string' ? d.url : '', partition: typeof d.partition === 'string' ? d.partition : '',
+    received: num(d.received, 0, 1e13, 0), total: num(d.total, 0, 1e13, 0),
+    state: oneOf(d.state, ['completed', 'cancelled', 'interrupted'], 'completed'), ts: num(d.ts, 0, 1e14, 0),
+  }));
 
 function loadState() {
   for (const file of [STATE_FILE, STATE_FILE + '.bak']) {
     try {
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not an object');
-      const s = { ...defaults(), ...raw, v: 2, ...cleanLayout(raw.v === 2 ? raw : migrateV1(raw)) };
-      const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
-      if (!obj(s.window)) s.window = defaults().window;
-      if (!obj(s.popBounds)) s.popBounds = {};
-      if (!obj(s.last)) s.last = null;
-      s.sleepMinutes = num(raw.sleepMinutes, 0, 1440, 10);
-      s.closeToTray = s.closeToTray !== false;
-      for (const k of ['layout', 'slots', 'sizes', 'maximized']) delete s[k]; // v1 leftovers
+      if (!isObj(raw)) throw new Error('not an object');
+      const settings = cleanSettings(raw.settings, raw);
+      rebuildServices(settings);
+      const s = { ...defaults(), ...raw, v: 3, settings, ...cleanLayout(raw.v >= 2 ? raw : migrateV1(raw)) };
+      if (!isObj(s.window)) s.window = defaults().window;
+      if (!isObj(s.popBounds)) s.popBounds = {};
+      if (!isObj(s.docBounds)) s.docBounds = null;
+      if (!isObj(s.last)) s.last = null;
+      s.downloads = cleanDownloads(raw.downloads);
+      for (const k of ['layout', 'slots', 'sizes', 'maximized', 'closeToTray', 'sleepMinutes']) delete s[k]; // older formats
       if (file === STATE_FILE) fs.copyFileSync(file, file + '.bak');
       else log('state.json unreadable; restored from backup');
-      if (raw.v !== 2) log('migrated state.json from v1');
+      if (!raw.v) log('migrated state.json from v1');
+      if (raw.settings !== undefined && JSON.stringify(raw.settings) !== JSON.stringify(settings)) log('settings had invalid or missing values; fixed');
       return s;
     } catch (e) {
       if (e.code !== 'ENOENT') log(`could not read ${path.basename(file)}:`, e.message);
     }
   }
-  return defaults();
+  const d = defaults(); rebuildServices(d.settings); return d;
 }
 
 const state = loadState();
@@ -184,26 +281,96 @@ function writeState() {
 }
 const saveState = () => { clearTimeout(saveTimer); saveTimer = setTimeout(writeState, 400); };
 
-let win; let tray; let quitting = false; let covered = false;
-/** id -> { view, status, url, hiddenSince, retries, retryTimer, popWin, unread } */
-const panes = new Map();
-const send = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
+// ---- dock menu: right-click WakeUp in the dock → open one app on its own
+const DESKTOP_FILE = path.join(app.getPath('home'), '.local', 'share', 'applications', 'wakeup.desktop');
+const EXEC = () => process.env.APPIMAGE || process.execPath;
+function writeDesktopEntry() {
+  if (!app.isPackaged) return; // `npm start` must not point the launcher at the dev Electron
+  const apps = shownServices();
+  const exec = `"${EXEC().replace(/(["`$\\])/g, '\\$1')}"`;
+  const body = `[Desktop Entry]
+Type=Application
+Name=${APP}
+GenericName=Workspace
+Comment=Ebwise, Outlook, Calendar, To Do and Teams side by side
+Exec=${exec} %U
+TryExec=${EXEC()}
+Icon=wakeup
+Terminal=false
+Categories=Office;Network;
+Keywords=mail;teams;outlook;calendar;todo;ebwise;mmu;workhub;
+StartupNotify=true
+StartupWMClass=wakeup
+SingleMainWindow=true
+Actions=${apps.map((s) => `open-${s.id};`).join('')}settings;quit;
+${apps.map((s) => `
+[Desktop Action open-${s.id}]
+Name=${text(s.name, 32)}
+Exec=${exec} --open=${s.id}
+`).join('')}
+[Desktop Action settings]
+Name=Settings
+Exec=${exec} --open=settings
 
-// ---- sessions: permissions, screen share, UA
+[Desktop Action quit]
+Name=Quit ${APP}
+Exec=${exec} --quit
+`;
+  try { if (fs.readFileSync(DESKTOP_FILE, 'utf8') === body) return; } catch { /* missing: write it */ }
+  try {
+    fs.mkdirSync(path.dirname(DESKTOP_FILE), { recursive: true });
+    fs.writeFileSync(DESKTOP_FILE + '.tmp', body);
+    fs.renameSync(DESKTOP_FILE + '.tmp', DESKTOP_FILE);
+  } catch (e) { log('could not write launcher', e); }
+}
+const argOpen = (argv) => {
+  const i = argv.findIndex((a) => a === '--open' || a.startsWith('--open='));
+  if (i < 0) return null;
+  return argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1] || null;
+};
+
+// scripts/install.sh runs `wakeup --install-desktop` to write the launcher, then exits.
+if (process.argv.includes('--install-desktop')) { writeDesktopEntry(); process.exit(0); }
+if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+if (process.argv.includes('--quit')) process.exit(0); // nothing running: nothing to quit
+
+// What to show at launch: `--open <id>`, else the "At launch open" setting.
+const openArg = argOpen(process.argv);
+let soloBoot = null; // launched into one app: don't let it replace the saved workspace until the layout changes
+{
+  const target = valid(openArg) ? openArg : valid(state.settings.launch) ? state.settings.launch : null;
+  if (target) { soloBoot = target; Object.assign(state, single(target)); }
+  else if (state.settings.launch === 'home' && openArg !== 'settings') Object.assign(state, { tile: null, free: [], alive: [], popped: [], focused: null, zoomed: null });
+}
+nativeTheme.themeSource = state.settings.theme;
+
+let win; let tray; let quitting = false; let covered = false;
+/** id -> { view, status, url, hiddenSince, retries, retryTimer, popWin, unread, findOpen } */
+const panes = new Map();
+const pendingUrl = {}; // id -> URL a pane should open with (mail compose, Teams meeting links)
+if (process.env.WAKEUP_PROFILE) global.wakeupDebug = { panes, state }; // test profiles only: lets a debugger inspect panes
+const send = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
+const paneIdOf = (wc) => { for (const [id, p] of panes) if (p.view?.webContents === wc) return id; return null; };
+const paneWc = (id) => { const wc = panes.get(id)?.view?.webContents; return wc && !wc.isDestroyed() ? wc : null; };
+
+// ---- sessions: permissions, screen share, UA, downloads
 const configured = new Set();
 function configureSession(partition) {
   if (configured.has(partition)) return;
   configured.add(partition);
   const ses = session.fromPartition(partition);
   ses.setUserAgent(UA);
+  const notifyOk = (wc) => { const id = wc && paneIdOf(wc); return !(id && state.settings.notify[id] === false); };
   ses.setPermissionRequestHandler((wc, permission, cb, details) => {
     const url = details.requestingUrl || wc.getURL();
     if (permission === 'media' || permission === 'display-capture') return cb(isMediaHost(url));
-    return cb(['notifications', 'clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'speaker-selection'].includes(permission));
+    if (permission === 'notifications') return cb(notifyOk(wc));
+    return cb(['clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'speaker-selection'].includes(permission));
   });
-  ses.setPermissionCheckHandler((_wc, permission, origin) => {
+  ses.setPermissionCheckHandler((wc, permission, origin) => {
     if (permission === 'media') return isMediaHost(origin);
-    return ['notifications', 'clipboard-sanitized-write', 'fullscreen'].includes(permission);
+    if (permission === 'notifications') return notifyOk(wc);
+    return ['clipboard-sanitized-write', 'fullscreen'].includes(permission);
   });
   // On Wayland, getSources() opens the system (PipeWire portal) picker and returns the chosen source.
   ses.setDisplayMediaRequestHandler(async (request, cb) => {
@@ -213,11 +380,221 @@ function configureSession(partition) {
       cb(sources.length ? { video: sources[0] } : {});
     } catch (e) { log('screen share failed', e); cb({}); }
   });
+  ses.on('will-download', (_e, item, wc) => onDownload(item, wc, partition));
+}
+
+// ---- downloads: straight to the Downloads folder (or ask), with progress in the Downloads panel
+const downloads = []; // newest first: {id, name, path, url, partition, received, total, state, ts}
+const dlItems = new Map(); // id -> DownloadItem while in progress
+const reserved = new Set(); // save paths taken by downloads still in progress
+const askOnce = new Set(); // URLs from "Save link as…"
+let dlSeq = 0;
+const canRetry = (d) => isHttp(d.url) && !!d.partition;
+const publicDl = (d) => ({ id: d.id, name: d.name, path: d.path, received: d.received, total: d.total, state: d.state, ts: d.ts, retry: canRetry(d) || !!dlItems.get(d.id)?.canResume() });
+// Files that run code when opened: never open these without the user choosing to.
+const RUNNABLE = /\.(desktop|sh|bash|zsh|fish|run|bin|appimage|jar|py|pl|rb|exe|msi|bat|cmd|com|scr|ps1|vbs|deb|rpm|flatpakref|snap)$/i;
+const openFile = (p) => (RUNNABLE.test(p) ? shell.showItemInFolder(p) : shell.openPath(p).then((err) => err && log('could not open', path.basename(p), err)));
+function downloadDir() {
+  const dir = state.settings.downloadDir || app.getPath('downloads');
+  try { fs.mkdirSync(dir, { recursive: true }); return dir; } catch (e) { log('download folder unusable, using default', e.message); return app.getPath('downloads'); }
+}
+function uniquePath(dir, name) {
+  const ext = path.extname(name); const base = name.slice(0, name.length - ext.length) || 'download';
+  for (let i = 0; ; i++) {
+    const p = path.join(dir, i ? `${base} (${i})${ext}` : name);
+    if (!reserved.has(p) && !fs.existsSync(p)) return p;
+  }
+}
+function onDownload(item, wc, partition) {
+  const s = state.settings;
+  const id = `d${Date.now().toString(36)}${dlSeq++}`;
+  const name = path.basename(item.getFilename() || '').replace(/^\.+/, '') || 'download';
+  const ask = askOnce.delete(item.getURL()) || s.askDownload;
+  const dir = downloadDir();
+  if (ask) item.setSaveDialogOptions({ defaultPath: path.join(dir, name) });
+  else { item.setSavePath(uniquePath(dir, name)); reserved.add(item.getSavePath()); }
+  const d = { id, name, path: ask ? '' : item.getSavePath(), url: item.getURL(), partition, received: 0, total: item.getTotalBytes(), state: 'progressing', ts: Date.now() };
+  downloads.unshift(d); dlItems.set(id, item);
+  // A link window that only existed to start this download stays blank: close it.
+  const w = wc && !wc.isDestroyed() ? BrowserWindow.fromWebContents(wc) : null;
+  if (w && linkWindows.has(w) && !linkWindows.get(w).loaded) setImmediate(() => { if (!w.isDestroyed()) w.close(); });
+  let lastSent = 0;
+  const push = (force) => { const now = Date.now(); if (force || now - lastSent > 250) { lastSent = now; send('download', publicDl(d)); } };
+  push(true);
+  item.on('updated', (_e, st) => {
+    if (item.getSavePath() && item.getSavePath() !== d.path) { d.path = item.getSavePath(); d.name = path.basename(d.path); reserved.add(d.path); }
+    d.received = item.getReceivedBytes(); d.total = item.getTotalBytes();
+    d.state = st === 'interrupted' ? 'interrupted' : item.isPaused() ? 'paused' : 'progressing';
+    push(false);
+  });
+  item.once('done', (_e, st) => {
+    dlItems.delete(id); reserved.delete(d.path);
+    d.path = item.getSavePath() || d.path; d.received = item.getReceivedBytes(); d.state = st;
+    if (!d.path) { downloads.splice(downloads.indexOf(d), 1); send('download', { id, removed: true }); return; } // save dialog cancelled
+    d.name = path.basename(d.path);
+    send('download', publicDl(d));
+    if (st === 'completed') {
+      if (s.openDownload && !RUNNABLE.test(d.path)) openFile(d.path);
+      else if (s.notifyDownload && Notification.isSupported()) {
+        const n = new Notification({ title: 'Download finished', body: d.name, icon: ICON });
+        n.on('click', () => openFile(d.path));
+        n.show();
+      }
+    } else if (st === 'interrupted') {
+      log(`download failed: ${d.name}`);
+      if (Notification.isSupported()) new Notification({ title: 'Download failed', body: `${d.name} — open Downloads in ${APP} to retry.`, icon: ICON }).show();
+    }
+    // kept across restarts without the source URL (SharePoint/Outlook links can carry access tokens)
+    state.downloads = downloads.filter((x) => !['progressing', 'paused'].includes(x.state)).slice(0, 20).map(({ url: _u, partition: _p, ...x }) => x);
+    saveState();
+  });
+}
+function downloadAction(id, action) {
+  const d = downloads.find((x) => x.id === id); if (!d) return;
+  const item = dlItems.get(id);
+  const drop = () => { downloads.splice(downloads.indexOf(d), 1); state.downloads = state.downloads.filter((x) => x.id !== id); saveState(); send('download', { id, removed: true }); };
+  if (action === 'open' && d.state === 'completed') {
+    if (!fs.existsSync(d.path)) send('download', { ...publicDl(d), missing: true }); else openFile(d.path);
+  }
+  else if (action === 'show' && d.path) { if (fs.existsSync(d.path)) shell.showItemInFolder(d.path); else shell.openPath(path.dirname(d.path)); }
+  else if (action === 'cancel' && item) item.cancel();
+  else if (action === 'retry') {
+    if (item?.canResume()) item.resume();
+    else if (!item && isHttp(d.url) && d.partition) {
+      drop();
+      configureSession(d.partition);
+      session.fromPartition(d.partition).downloadURL(d.url);
+    }
+  } else if (action === 'remove' && !item) drop();
+}
+
+// ---- links: where clicked links and popups go
+function openOut(url) {
+  if (url.startsWith('mailto:')) { composeMail(url); return; }
+  if (!isHttp(url)) { log('blocked a link with scheme', url.split(':')[0]); return; } // never hand file:/smb:/custom schemes to the OS
+  shell.openExternal(url).catch((e) => log('openExternal failed', e));
+}
+function openInPane(id, url) {
+  if (!valid(id)) return false;
+  const p = panes.get(id);
+  if (p?.view && !p.view.webContents.isDestroyed()) { p.url = url; p.view.webContents.loadURL(url, { userAgent: UA }).catch(() => {}); } else pendingUrl[id] = url;
+  showWindow(); send('cmd', { name: 'open', arg: id });
+  return true;
+}
+function composeMail(mailto) {
+  const u = safeUrl(mailto); if (!u) return;
+  let to = u.pathname; try { to = decodeURIComponent(to); } catch { /* keep it encoded */ }
+  const q = new URLSearchParams({ to });
+  for (const k of ['subject', 'body', 'cc', 'bcc']) if (u.searchParams.get(k)) q.set(k, u.searchParams.get(k));
+  if (!openInPane('mail', `https://outlook.office.com/mail/deeplink/compose?${q}`)) shell.openExternal(mailto).catch(() => {});
+}
+function followLink(svc, url) { // a link leaving the app: browser, or a WakeUp window (Settings → Links)
+  if (state.settings.externalLinks === 'window' && isHttp(url)) openLinkWindow(url, svc); else openOut(url);
+}
+function openDoc(svc, url) { // a document inside the app's own sites (SharePoint, OneDrive, Ebwise files)
+  if (state.settings.docLinks === 'browser') openOut(url); else openLinkWindow(url, svc);
+}
+const linkWindowSize = () => fitOnScreen(state.docBounds || { width: 1100, height: 820 });
+const linkPrefs = (svc) => ({ partition: svc.partition, sandbox: true, contextIsolation: true, spellcheck: true });
+const linkWindows = new WeakMap(); // window -> { loaded }: a window that never showed a page only existed for a download
+function trackLinkWindow(w, svc, rememberSize = true) {
+  const info = { loaded: false };
+  linkWindows.set(w, info);
+  w.setMenuBarVisibility(false);
+  const wc = w.webContents;
+  wc.on('did-navigate', (_e, url) => { if (isHttp(url)) info.loaded = true; });
+  const remember = () => { if (!w.isMinimized() && !w.isMaximized()) { state.docBounds = w.getBounds(); saveState(); } };
+  if (rememberSize) { w.on('resize', remember); w.on('move', remember); } // not for small sign-in popups
+  guard(wc, svc, { linkWindow: true });
+}
+function openLinkWindow(url, svc) {
+  configureSession(svc.partition);
+  const w = new BrowserWindow({
+    ...linkWindowSize(), minWidth: 360, minHeight: 300, title: svc.name, icon: ICON,
+    autoHideMenuBar: true, backgroundColor: BG(), webPreferences: linkPrefs(svc),
+  });
+  trackLinkWindow(w, svc);
+  w.loadURL(url, { userAgent: UA }).catch(() => { /* Chromium shows its error page */ });
+}
+// window.open / target=_blank from a pane or one of its windows
+function routeOpen(svc, { url, disposition }) {
+  const deny = { action: 'deny' };
+  if (url.startsWith('mailto:')) { composeMail(url); return deny; }
+  if (isTeamsLink(url) && svc.id !== 'teams' && openInPane('teams', url)) return deny;
+  if (disposition === 'background-tab') { openOut(url); return deny; } // Ctrl+click / middle-click
+  const allow = (o = {}) => ({ action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: ICON, backgroundColor: BG(), ...o, webPreferences: linkPrefs(svc) } });
+  if (isAuth(url)) return allow({ width: 520, height: 720 });
+  // scripted popups (compose, sign-in) keep their opener; custom apps may sign in through any provider
+  if (url === 'about:blank' || url === '' || (disposition === 'new-window' && (svc.custom || isInternal(url, svc)))) return allow();
+  if (isInternal(url, svc)) {
+    if (state.settings.docLinks === 'browser') { openOut(url); return deny; }
+    const { width, height } = linkWindowSize();
+    return allow({ width, height });
+  }
+  followLink(svc, url);
+  return deny;
+}
+// Link rules, right-click menu and popups for a pane's page and every window it opens.
+function guard(wc, svc, { linkWindow = false } = {}) {
+  wc.setWindowOpenHandler((d) => routeOpen(svc, d));
+  wc.on('did-create-window', (w, d) => trackLinkWindow(w, svc, !isAuth(d.url)));
+  wc.on('context-menu', (_e, params) => contextMenu(wc, params, svc));
+  if (linkWindow) return; // link windows browse freely; panes stay on their own sites
+  wc.on('will-navigate', (e, url) => {
+    if (url.startsWith('mailto:')) { e.preventDefault(); composeMail(url); return; }
+    if (isTeamsLink(url) && svc.id !== 'teams') { e.preventDefault(); if (!openInPane('teams', url)) followLink(svc, url); return; }
+    if (isDocNav(url)) { e.preventDefault(); openDoc(svc, url); return; }
+    if (!svc.custom && !isInternal(url, svc)) { e.preventDefault(); followLink(svc, url); }
+  });
+}
+
+// ---- right-click menu (Electron has none by default)
+function contextMenu(wc, p, svc) {
+  const items = [];
+  const sep = () => { if (items.length && items.at(-1).type !== 'separator') items.push({ type: 'separator' }); };
+  const saveAs = (url) => { askOnce.add(url); wc.downloadURL(url); };
+  if (p.misspelledWord) {
+    for (const w of p.dictionarySuggestions.slice(0, 5)) items.push({ label: w, click: () => wc.replaceMisspelling(w) });
+    if (!p.dictionarySuggestions.length) items.push({ label: 'No spelling suggestions', enabled: false });
+    items.push({ label: 'Add to dictionary', click: () => wc.session.addWordToSpellCheckerDictionary(p.misspelledWord) });
+    sep();
+  }
+  if (isHttp(p.linkURL)) {
+    items.push(
+      { label: 'Open link in browser', click: () => openOut(p.linkURL) },
+      { label: `Open link in ${APP} window`, click: () => openLinkWindow(p.linkURL, svc) },
+      { label: 'Copy link address', click: () => clipboard.writeText(p.linkURL) },
+      { label: 'Save link as…', click: () => saveAs(p.linkURL) },
+    );
+    sep();
+  } else if (p.linkURL.startsWith('mailto:')) {
+    items.push({ label: 'Copy email address', click: () => clipboard.writeText(decodeURIComponent(p.linkURL.slice(7).split('?')[0])) });
+    sep();
+  }
+  if (p.mediaType === 'image' && p.srcURL) {
+    items.push({ label: 'Copy image', click: () => wc.copyImageAt(p.x, p.y) });
+    if (/^(https?|blob|data):/i.test(p.srcURL)) items.push({ label: 'Save image as…', click: () => saveAs(p.srcURL) });
+    sep();
+  }
+  const f = p.editFlags;
+  if (p.isEditable) {
+    items.push(
+      { label: 'Undo', enabled: f.canUndo, click: () => wc.undo() }, { label: 'Redo', enabled: f.canRedo, click: () => wc.redo() }, { type: 'separator' },
+      { label: 'Cut', enabled: f.canCut, click: () => wc.cut() }, { label: 'Copy', enabled: f.canCopy, click: () => wc.copy() },
+      { label: 'Paste', enabled: f.canPaste, click: () => wc.paste() }, { label: 'Paste as plain text', enabled: f.canPaste, click: () => wc.pasteAndMatchStyle() },
+      { label: 'Select all', enabled: f.canSelectAll, click: () => wc.selectAll() },
+    );
+  } else if (p.selectionText.trim()) items.push({ label: 'Copy', click: () => wc.copy() });
+  while (items.at(-1)?.type === 'separator') items.pop();
+  if (!items.length) return;
+  const id = paneIdOf(wc);
+  const w = BrowserWindow.fromWebContents(wc) || (id && panes.get(id)?.popWin) || win;
+  Menu.buildFromTemplate(items).popup({ window: w });
 }
 
 // ---- pane status: loading / ready / error / crashed / hung / sleeping
 const pane = (id) => {
-  if (!panes.has(id)) panes.set(id, { view: null, status: 'new', url: null, hiddenSince: null, retries: 0, retryTimer: null, popWin: null, unread: 0 });
+  if (!panes.has(id)) panes.set(id, { view: null, status: 'new', url: null, hiddenSince: null, retries: 0, retryTimer: null, popWin: null, unread: 0, findOpen: false });
   return panes.get(id);
 };
 function setStatus(id, status, extra = {}) {
@@ -243,6 +620,20 @@ function retry(id) {
   p.view.webContents.loadURL(p.url || byId[id].url).catch(() => { /* reported via did-fail-load */ });
 }
 
+const iconTried = new Set();
+async function fetchIcon(id, url, ses) { // custom apps: keep the site's favicon for the sidebar
+  if (iconTried.has(id) || !isHttp(url)) return;
+  iconTried.add(id);
+  try {
+    const res = await ses.fetch(url);
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!res.ok || !type.startsWith('image/') || buf.length > 60000) return;
+    const icon = `data:${type};base64,${buf.toString('base64')}`;
+    applySettings({ customApps: state.settings.customApps.map((c) => (c.id === id ? { ...c, icon } : c)) });
+  } catch (e) { log('could not fetch icon for', id, e.message); }
+}
+
 function createView(id) {
   const p = pane(id);
   const svc = byId[id];
@@ -253,26 +644,19 @@ function createView(id) {
   view.setBorderRadius?.(p.popWin ? 0 : 8);
   view.setBackgroundColor(BG());
   const wc = view.webContents;
-  wc.setWindowOpenHandler(({ url }) => {
-    if (isInternal(url)) {
-      return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, icon: ICON, webPreferences: { partition: svc.partition, sandbox: true } } };
-    }
-    shell.openExternal(url).catch((e) => log('openExternal failed', e));
-    return { action: 'deny' };
-  });
-  wc.on('will-navigate', (e, url) => {
-    if (!isInternal(url)) { e.preventDefault(); shell.openExternal(url).catch((er) => log('openExternal failed', er)); }
-  });
+  guard(wc, svc);
   wc.on('page-title-updated', (_e, title) => {
     const m = title.match(/^\((\d+)\)|\((\d+)\)\s*$|^(\d+)\s+unread/i);
     const n = m ? Number(m[1] || m[2] || m[3]) : 0;
     if (n !== p.unread) { p.unread = n; updateBadge(); send('unread', { id, n }); }
   });
+  if (svc.custom && !svc.icon) wc.on('page-favicon-updated', (_e, favs) => fetchIcon(id, favs[0], wc.session));
   wc.on('did-start-loading', () => { if (p.status !== 'error') setStatus(id, 'loading'); });
   wc.on('did-stop-loading', () => { if (p.status === 'loading') setStatus(id, 'ready'); });
   wc.on('did-navigate', (_e, url) => { p.url = url; });
   wc.on('did-navigate-in-page', (_e, url, isMain) => { if (isMain) p.url = url; });
   wc.on('did-finish-load', () => {
+    if (state.settings.zoom !== 100) wc.setZoomFactor(state.settings.zoom / 100);
     if (p.status === 'error') return; // Chromium's error page finished; only retry() clears an error
     p.retries = 0; clearTimeout(p.retryTimer); setStatus(id, 'ready');
   });
@@ -289,11 +673,17 @@ function createView(id) {
   });
   wc.on('unresponsive', () => setStatus(id, 'hung'));
   wc.on('responsive', () => { if (p.status === 'hung') setStatus(id, 'ready'); });
+  wc.on('found-in-page', (_e, r) => {
+    if (!r.finalUpdate) return;
+    const host = p.popWin && !p.popWin.isDestroyed() ? p.popWin.webContents : win?.webContents;
+    host?.send('found', { id, active: r.activeMatchOrdinal, matches: r.matches });
+  });
   wc.on('before-input-event', (e, input) => { if (handleShortcut(input, id)) e.preventDefault(); });
   wc.on('focus', () => { if (!p.popWin) send('focused', id); });
   p.view = view;
   setStatus(id, 'loading');
-  wc.loadURL(p.url || svc.url, { userAgent: UA }).catch(() => { /* reported via did-fail-load */ });
+  const url = pendingUrl[id] || p.url || svc.url; delete pendingUrl[id];
+  wc.loadURL(url, { userAgent: UA }).catch(() => { /* reported via did-fail-load */ });
   return view;
 }
 function wake(id) { const p = pane(id); return p.view || createView(id); }
@@ -319,11 +709,18 @@ function closePane(id) {
 }
 
 // ---- sleep: unload panes that have been out of sight for a while (frees RAM). keepAlive services never sleep.
+const windowShown = () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+function markHiddenWindow() { // the whole window is in the tray or minimised: every docked pane is out of sight
+  if (!state.settings.sleepWhenHidden) return;
+  for (const p of panes.values()) if (p.view && !p.popWin) p.hiddenSince ??= Date.now();
+}
 setInterval(() => {
-  if (!state.sleepMinutes) return;
-  const cutoff = Date.now() - state.sleepMinutes * 60e3;
+  const mins = state.settings.sleepMinutes;
+  if (!mins) return;
+  if (!windowShown()) markHiddenWindow(); // minimise state can lag behind its event on Wayland
+  const cutoff = Date.now() - mins * 60e3;
   for (const [id, p] of panes) {
-    if (!p.view || p.popWin || byId[id].keepAlive || !p.hiddenSince || p.hiddenSince > cutoff) continue;
+    if (!p.view || p.popWin || byId[id]?.keepAlive || !p.hiddenSince || p.hiddenSince > cutoff) continue;
     if (p.view.webContents.isCurrentlyAudible()) continue;
     p.url = p.view.webContents.getURL() || p.url;
     destroyView(p);
@@ -365,6 +762,13 @@ function applyBounds(b = lastBounds) {
 }
 
 // ---- pop-out windows: the same view moves into its own window, so nothing reloads and sign-in is kept
+const FINDBAR = 40;
+function fitPop(id) {
+  const p = panes.get(id); const w = p?.popWin;
+  if (!w || w.isDestroyed() || !p.view) return;
+  const [cw, ch] = w.getContentSize(); const top = p.findOpen ? FINDBAR : 0;
+  p.view.setBounds({ x: 0, y: top, width: cw, height: Math.max(0, ch - top) });
+}
 function popOut(id) {
   const p = pane(id);
   if (p.popWin) return;
@@ -373,22 +777,24 @@ function popOut(id) {
   const w = new BrowserWindow({
     ...fitOnScreen(state.popBounds[id] || { width: 1000, height: 760 }), minWidth: 360, minHeight: 300,
     title: `${byId[id].name} — ${APP}`, icon: ICON, autoHideMenuBar: true, backgroundColor: BG(),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
-  p.popWin = w;
+  p.popWin = w; p.findOpen = false;
   w.setMenuBarVisibility(false);
+  w.loadFile(UI('pop.html'), { query: { id } }); // holds the find bar
+  w.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input, id)) e.preventDefault(); });
   view.setBorderRadius?.(0);
   w.contentView.addChildView(view);
-  const fit = () => { const [cw, ch] = w.getContentSize(); view.setBounds({ x: 0, y: 0, width: cw, height: ch }); };
   const remember = () => { if (!w.isMinimized() && !w.isMaximized()) { state.popBounds[id] = w.getBounds(); saveState(); } };
-  fit(); view.setVisible(true);
-  w.on('resize', () => { fit(); remember(); });
+  fitPop(id); view.setVisible(true);
+  w.on('resize', () => { fitPop(id); remember(); });
   w.on('move', remember);
   w.on('close', () => {
     if (p.popWin !== w || quitting) return; // closed by us (dock/close), or app quitting: keep popped state for next launch
     // the user closed the window → dock the pane back into the layout
     w.contentView.removeChildView(view);
     view.setBorderRadius?.(8);
-    p.popWin = null;
+    p.popWin = null; p.findOpen = false;
     send('cmd', { name: 'dock', arg: id });
   });
   view.webContents.focus();
@@ -396,8 +802,8 @@ function popOut(id) {
 function dockBack(id) {
   const p = panes.get(id);
   if (!p?.popWin) return;
-  const w = p.popWin; p.popWin = null;
-  if (p.view) { w.contentView.removeChildView(p.view); p.view.setBorderRadius?.(8); }
+  const w = p.popWin; p.popWin = null; p.findOpen = false;
+  if (p.view) { w.contentView.removeChildView(p.view); p.view.setBorderRadius?.(8); p.view.webContents.stopFindInPage('clearSelection'); }
   w.destroy();
 }
 
@@ -405,7 +811,9 @@ function dockBack(id) {
 function commit(raw) {
   const l = cleanLayout(raw && typeof raw === 'object' ? raw : {});
   Object.assign(state, l);
-  if (leaves(l.tile).length || l.free.length) state.last = { mode: l.mode, tile: l.tile, free: l.free, alive: l.alive };
+  const solo = soloBoot && l.mode === 'tile' && l.tile?.pane === soloBoot && l.alive.length === 1;
+  if (!solo) soloBoot = null;
+  if (!solo && (leaves(l.tile).length || l.free.length)) state.last = { mode: l.mode, tile: l.tile, free: l.free, alive: l.alive };
   for (const [id, p] of panes) {
     if (!l.alive.includes(id)) closePane(id);
     else if (p.popWin && !l.popped.includes(id)) dockBack(id);
@@ -419,12 +827,22 @@ function handleShortcut(input, fromId) {
   if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return false;
   const k = input.key.toLowerCase();
   const popped = fromId && panes.get(fromId)?.popWin;
+  if (fromId && !input.shift && byId[fromId]?.ownKeys?.includes(k)) return false; // e.g. Teams' own Ctrl+F search and Ctrl+, settings
   const cmd = (name, arg) => { send('cmd', { name, arg }); return true; };
   if (!input.shift) {
-    if (/^[1-9]$/.test(k) && SERVICES[Number(k) - 1]) { showWindow(); return cmd('open', SERVICES[Number(k) - 1].id); }
+    const apps = shownServices();
+    if (/^[1-9]$/.test(k) && apps[Number(k) - 1]) { showWindow(); return cmd('open', apps[Number(k) - 1].id); }
     if (k === 'w') return cmd('close', popped ? fromId : undefined);
     if (k === 'm' && !popped) return cmd('zoom');
     if (k === 'r') { retryOrReload(fromId || state.focused); return true; }
+    if (k === 'f') {
+      const id = fromId || state.focused; if (!id) return true;
+      const host = popped || win;
+      host.webContents.focus(); host.webContents.send('cmd', { name: 'find', arg: id });
+      return true;
+    }
+    if (k === ',') { showWindow(); return cmd('settings'); }
+    if (k === 'j') { showWindow(); return cmd('downloads'); }
     if (k === 'tab' && !popped) return cmd('cycle', 1);
   } else {
     if (k === 'tab' && !popped) return cmd('cycle', -1);
@@ -450,15 +868,14 @@ function updateBadge() {
 const AUTOSTART = path.join(app.getPath('home'), '.config', 'autostart', 'wakeup.desktop');
 const LEGACY_AUTOSTART = path.join(path.dirname(AUTOSTART), 'workhub.desktop');
 const autostartOn = () => fs.existsSync(AUTOSTART);
+const autostartBody = () => `[Desktop Entry]\nType=Application\nName=${APP}\nExec="${EXEC()}" --hidden\nIcon=wakeup\nX-GNOME-Autostart-enabled=true\n`;
 function setAutostart(on) {
   try {
     if (on) {
-      const exec = process.env.APPIMAGE || process.execPath;
       fs.mkdirSync(path.dirname(AUTOSTART), { recursive: true });
-      fs.writeFileSync(AUTOSTART, `[Desktop Entry]\nType=Application\nName=${APP}\nExec="${exec}" --hidden\nIcon=wakeup\nX-GNOME-Autostart-enabled=true\n`);
+      fs.writeFileSync(AUTOSTART, autostartBody());
     } else fs.rmSync(AUTOSTART, { force: true });
   } catch (e) { log('autostart change failed', e); }
-  buildTray();
 }
 
 function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
@@ -473,12 +890,10 @@ function buildTray() {
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: `Show ${APP}`, click: showWindow },
       { type: 'separator' },
-      ...SERVICES.map((s, i) => ({ label: s.name, accelerator: `Ctrl+${i + 1}`, click: () => { showWindow(); send('cmd', { name: 'open', arg: s.id }); } })),
+      ...shownServices().slice(0, 9).map((s, i) => ({ label: s.name, accelerator: `Ctrl+${i + 1}`, click: () => { showWindow(); send('cmd', { name: 'open', arg: s.id }); } })),
       { type: 'separator' },
-      { label: 'Start at login', type: 'checkbox', checked: autostartOn(), click: (m) => setAutostart(m.checked) },
-      { label: 'Keep running when closed', type: 'checkbox', checked: state.closeToTray, click: (m) => { state.closeToTray = m.checked; saveState(); } },
-      { label: 'Sleep background panes after 10 min', type: 'checkbox', checked: state.sleepMinutes > 0, click: (m) => { state.sleepMinutes = m.checked ? 10 : 0; saveState(); } },
-      { label: 'Open log folder', click: () => { fs.mkdirSync(LOG_DIR, { recursive: true }); shell.openPath(LOG_DIR); } },
+      { label: 'Downloads', click: () => { showWindow(); send('cmd', { name: 'downloads' }); } },
+      { label: 'Settings…', click: () => { showWindow(); send('cmd', { name: 'settings' }); } },
       { type: 'separator' },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } },
     ]));
@@ -495,6 +910,38 @@ function fitOnScreen(b) {
   return onScreen ? { x: b.x, y: b.y, width, height } : { width, height };
 }
 
+// ---- settings changes from the Settings page (and the favicon fetcher)
+const settingsPayload = () => ({
+  settings: state.settings, services: SERVICES, autostart: autostartOn(), version: app.getVersion(),
+  defaultDownloadDir: app.getPath('downloads'),
+  layout: { mode: state.mode, tile: state.tile, free: state.free, alive: state.alive, popped: state.popped, focused: state.focused, zoomed: state.zoomed },
+});
+function applySettings(patch) {
+  if (!isObj(patch)) return settingsPayload();
+  if (typeof patch.autostart === 'boolean') setAutostart(patch.autostart);
+  const prev = state.settings;
+  const next = cleanSettings({ ...prev, ...patch });
+  state.settings = next;
+  rebuildServices(next);
+  // apps that were hidden or removed leave the layout and free their memory
+  Object.assign(state, cleanLayout(state));
+  for (const id of [...panes.keys()]) if (!valid(id)) closePane(id);
+  // an edited custom app (new address or sign-in) reloads with it
+  for (const c of next.customApps) {
+    const old = prev.customApps.find((x) => x.id === c.id); const p = panes.get(c.id);
+    if (!old || !p || (old.url === c.url && old.own === c.own)) continue;
+    p.url = null; destroyView(p); setStatus(c.id, 'sleeping');
+    if (p.popWin) { const v = wake(c.id); v.setBorderRadius?.(0); p.popWin.contentView.addChildView(v); fitPop(c.id); } else applyBounds();
+  }
+  if (next.theme !== prev.theme) nativeTheme.themeSource = next.theme;
+  if (next.zoom !== prev.zoom) for (const p of panes.values()) if (p.view && !p.view.webContents.isDestroyed()) p.view.webContents.setZoomFactor(next.zoom / 100);
+  writeDesktopEntry();
+  buildTray(); updateBadge(); saveState();
+  const payload = settingsPayload();
+  send('settings', payload);
+  return payload;
+}
+
 // ---- window
 function createWindow() {
   win = new BrowserWindow({
@@ -509,8 +956,15 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   if (state.window.maximized) win.maximize();
-  win.loadFile(path.join(__dirname, 'ui', 'index.html'));
-  win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
+  win.loadFile(UI('index.html'));
+  const hidden = process.argv.includes('--hidden') || (state.settings.startHidden && !openArg);
+  win.once('ready-to-show', () => {
+    if (!hidden) win.show();
+    // Background apps you keep running (Mail, Teams) start after the window is up, so the first paint isn't waiting on them.
+    setTimeout(() => {
+      for (const id of state.alive) if (byId[id]?.keepAlive && !state.popped.includes(id) && !panes.get(id)?.view) wake(id);
+    }, 3000);
+  });
   win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input)) e.preventDefault(); });
   win.webContents.on('render-process-gone', (_e, d) => { log('shell UI gone', d.reason); if (!quitting) win.webContents.reload(); });
 
@@ -520,24 +974,31 @@ function createWindow() {
     saveState();
   };
   win.on('resize', remember); win.on('move', remember);
+  win.on('hide', markHiddenWindow); win.on('minimize', markHiddenWindow);
+  win.on('show', () => applyBounds()); win.on('restore', () => applyBounds());
   win.on('close', (e) => {
-    if (quitting || !state.closeToTray || !tray) return;
-    e.preventDefault(); win.hide();
+    if (quitting) return;
+    const how = state.settings.onClose;
+    if (how === 'quit') { quitting = true; app.quit(); return; }
+    e.preventDefault();
+    if (how === 'minimize' || !tray) { win.minimize(); return; }
+    win.hide();
     if (!state.toldAboutTray && Notification.isSupported()) {
-      new Notification({ title: `${APP} is still running`, body: 'Your sign-ins and notifications stay on. Quit from the tray icon.', icon: ICON }).show();
+      new Notification({ title: `${APP} is still running`, body: 'Your sign-ins and notifications stay on. Quit from the tray icon, or change this in Settings.', icon: ICON }).show();
       state.toldAboutTray = true; saveState();
     }
   });
   win.on('closed', () => { win = null; });
 }
 
-// ---- IPC from the shell UI
+// ---- IPC from the shell UI (and pop-out windows)
 ipcMain.handle('init', () => ({
-  services: SERVICES,
-  layout: { mode: state.mode, tile: state.tile, free: state.free, alive: state.alive, popped: state.popped, focused: state.focused, zoomed: state.zoomed },
+  ...settingsPayload(),
   last: state.last,
   status: Object.fromEntries([...panes].map(([id, p]) => [id, p.status])),
   unread: Object.fromEntries([...panes].map(([id, p]) => [id, p.unread])),
+  downloads: downloads.map(publicDl),
+  openSettings: openArg === 'settings',
 }));
 ipcMain.on('commit', (_e, l) => commit(l));
 ipcMain.on('bounds', (_e, b) => {
@@ -554,18 +1015,55 @@ ipcMain.on('focus-view', (_e, id) => {
 ipcMain.on('retry', (_e, id) => { if (valid(id)) retryOrReload(id); });
 ipcMain.on('retry-failed', () => { for (const [id, p] of panes) if (p.status === 'error') retry(id); });
 ipcMain.on('nav', (_e, { id, action } = {}) => {
-  const wc = panes.get(id)?.view?.webContents; if (!wc || wc.isDestroyed()) return;
+  const wc = paneWc(id); if (!wc) return;
   if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (action === 'reload') retryOrReload(id);
-  if (action === 'external') shell.openExternal(wc.getURL()).catch((e) => log('openExternal failed', e));
+  if (action === 'external') openOut(wc.getURL());
+});
+ipcMain.on('find', (_e, { id, text: q, forward, start } = {}) => {
+  const wc = paneWc(id); if (!wc || typeof q !== 'string') return;
+  if (!q) { wc.stopFindInPage('clearSelection'); return; }
+  wc.findInPage(q.slice(0, 300), { forward: forward !== false, findNext: !!start });
+});
+ipcMain.on('find-bar', (_e, { id, open } = {}) => {
+  const p = panes.get(id); if (!p) return;
+  const wc = paneWc(id);
+  if (!open && wc) { wc.stopFindInPage('clearSelection'); wc.focus(); }
+  if (p.popWin) { p.findOpen = !!open; fitPop(id); }
+});
+ipcMain.handle('settings-set', (_e, patch) => applySettings(patch));
+ipcMain.handle('pick-folder', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Save downloads to', defaultPath: downloadDir(), properties: ['openDirectory', 'createDirectory'] });
+  return r.canceled ? null : r.filePaths[0] || null;
+});
+ipcMain.on('clear-app-data', (_e, id) => { // after removing a custom app that had its own sign-in
+  if (typeof id !== 'string' || !/^c-[a-z0-9-]{1,40}$/.test(id) || byId[id]) return;
+  const ses = session.fromPartition(`persist:${id}`);
+  Promise.all([ses.clearStorageData(), ses.clearCache()]).catch((e) => log('clearing app data failed', e));
+});
+ipcMain.on('download', (_e, { id, action } = {}) => { if (typeof id === 'string') downloadAction(id, action); });
+ipcMain.on('app', (_e, action) => {
+  if (action === 'logs') { fs.mkdirSync(LOG_DIR, { recursive: true }); shell.openPath(LOG_DIR); }
+  if (action === 'downloads-folder') shell.openPath(downloadDir());
 });
 
-app.on('second-instance', showWindow);
+app.on('second-instance', (_e, argv) => {
+  if (argv.includes('--quit')) { quitting = true; app.quit(); return; }
+  showWindow();
+  const id = argOpen(argv);
+  if (id === 'settings') send('cmd', { name: 'settings' });
+  else if (valid(id)) send('cmd', { name: 'open', arg: id });
+});
 app.on('before-quit', () => { quitting = true; writeState(); });
 app.whenReady().then(() => {
+  downloads.push(...state.downloads.map((d) => ({ ...d })));
   createWindow();
-  if (fs.existsSync(LEGACY_AUTOSTART)) { fs.rmSync(LEGACY_AUTOSTART, { force: true }); setAutostart(true); } // carry "start at login" over the rename
-  buildTray();
+  setImmediate(() => {
+    if (fs.existsSync(LEGACY_AUTOSTART)) { fs.rmSync(LEGACY_AUTOSTART, { force: true }); setAutostart(true); } // carry "start at login" over the rename
+    else if (autostartOn() && fs.readFileSync(AUTOSTART, 'utf8') !== autostartBody()) setAutostart(true); // app moved: fix the path
+    buildTray();
+    writeDesktopEntry();
+  });
   nativeTheme.on('updated', () => {
     win?.setBackgroundColor(BG());
     for (const p of panes.values()) p.view?.setBackgroundColor(BG());
