@@ -142,13 +142,13 @@ export function Divider({ inset = 0 }: { inset?: number }) {
   return <View style={{ height: 1, backgroundColor: c.line, marginLeft: inset }} />;
 }
 
-export function Chip({ label, tone, icon }: { label: string; tone?: 'bad' | 'info' | 'warn' | 'good'; icon?: string }) {
+export function Chip({ label, tone, icon, small }: { label: string; tone?: 'bad' | 'info' | 'warn' | 'good'; icon?: string; small?: boolean }) {
   const { c } = useTheme();
   const fg = tone ? c[tone] : c.muted; const bg = tone ? c[`${tone}Bg` as const] : c.sunken;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: S(2), height: 24, borderRadius: R.chip, backgroundColor: bg, alignSelf: 'flex-start' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: small ? 5 : S(2), height: small ? 20 : 24, borderRadius: R.chip, backgroundColor: bg, alignSelf: 'flex-start' }}>
       {icon ? <Icon name={icon} size={12} color={fg} /> : null}
-      <Text numberOfLines={1} style={[T.small, { color: fg, fontWeight: '600', fontSize: 12, flexShrink: 1 }]}>{label}</Text>
+      <Text numberOfLines={1} style={[T.small, { color: fg, fontWeight: '600', fontSize: small ? 11 : 12, lineHeight: small ? 14 : 18, flexShrink: 1 }]}>{label}</Text>
     </View>
   );
 }
@@ -222,6 +222,19 @@ export function Sheet({ open, onClose, title, children, footer }: { open: boolea
       </KeyboardAvoidingView>
       </GestureHandlerRootView>
     </Modal>
+  );
+}
+
+// A selectable pill (date choices, a class, a session to copy). `dot` shows a class colour.
+export function Pick({ label, on, onPress, dot, icon }: { label: string; on?: boolean; onPress: () => void; dot?: string; icon?: string }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="radio" accessibilityState={{ checked: !!on }} accessibilityLabel={label} onPress={onPress}
+      style={({ pressed }) => ({ height: 36, paddingHorizontal: S(3), borderRadius: R.pill, flexDirection: 'row', alignItems: 'center', gap: S(1) + 2, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent', borderWidth: 1, borderColor: on ? c.accent : c.line })}>
+      {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
+      {icon ? <Icon name={icon} size={14} color={on ? c.accentText : c.muted} /> : null}
+      <Text numberOfLines={1} style={[T.small, { color: on ? c.accentText : c.text, fontWeight: on ? '600' : '500' }]}>{label}</Text>
+    </Pressable>
   );
 }
 

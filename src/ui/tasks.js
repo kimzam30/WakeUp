@@ -1,5 +1,5 @@
 'use strict';
-/* global PL, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, classLabel, classFull, classIcon, emptyArt, btnSvg */
+/* global Focus, FocusCore, PL, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, classLabel, classFull, classIcon, emptyArt, btnSvg */
 /* eslint-disable no-unused-vars */
 // Tasks: a fast local to-do list. Each task can have a due date and belong to a class.
 
@@ -16,13 +16,13 @@ function TasksView(root) {
   const st = { due: 'today', classId: '', showDone: false, editing: null };
   root.classList.add('lv', 'tasks-view');
   root.innerHTML = `
-    <header class="lv-head"><div class="lv-title"><h2>Tasks</h2><span class="lv-sub"></span></div></header>
+    <header class="lv-head"><div class="lv-title"><h2>Tasks</h2><span class="lv-sub"></span></div><div class="focus-box"></div></header>
     <form class="task-add" autocomplete="off">
       <span class="add-ico">${btnSvg('plus')}</span>
       <input name="text" maxlength="300" placeholder="Add a task, then press Enter" aria-label="New task">
       <div class="add-opts">
         <div class="chips" role="radiogroup" aria-label="Due">
-          <button type="button" role="radio" data-due="today">Today</button><button type="button" role="radio" data-due="tomorrow">Tomorrow</button><button type="button" role="radio" data-due="">No date</button>
+          <button type="button" role="radio" data-due="today">Today</button><button type="button" role="radio" data-due="tomorrow">Tomorrow</button><button type="button" role="radio" data-due="">No date</button><button type="button" role="radio" data-due="next" hidden title="The next time this class meets">Next class</button>
           <label class="chip-date" title="Pick a date">${btnSvg('cal')}<span class="cd-lbl"></span><input type="date" name="date" aria-label="Due date"></label>
         </div>
         <select name="cls" aria-label="Class"></select>
@@ -34,14 +34,14 @@ function TasksView(root) {
     e.preventDefault();
     const text = input.value.trim(); if (!text) return;
     const today = Planner.today();
-    const due = st.due === 'today' ? today : st.due === 'tomorrow' ? Planner.addDays(today, 1) : st.due || null;
+    const due = st.due === 'today' ? today : st.due === 'tomorrow' ? Planner.addDays(today, 1) : st.due === 'next' ? Planner.nextMeeting(PL, st.classId, today) : st.due || null;
     savePlanner({ tasks: [{ id: newId('t'), text, done: false, due, classId: st.classId || null, created: Date.now(), doneAt: null }, ...PL.tasks] });
     input.value = '';
   });
   form.addEventListener('click', (e) => { const b = e.target.closest('[data-due]'); if (b) { st.due = b.dataset.due; $('[name="date"]', form).value = ''; render(); input.focus(); } });
   form.addEventListener('change', (e) => {
     if (e.target.name === 'date' && e.target.value) { st.due = e.target.value; render(); }
-    if (e.target.name === 'cls') st.classId = e.target.value;
+    if (e.target.name === 'cls') { st.classId = e.target.value; if (!st.classId && st.due === 'next') st.due = 'today'; render(); }
   });
 
   const list = $('.task-groups', root);
@@ -56,6 +56,7 @@ function TasksView(root) {
     else if (b.dataset.act === 'show-done') { st.showDone = !st.showDone; render(); }
     else if (b.dataset.act === 'clear-done') savePlanner({ tasks: PL.tasks.filter((t) => !t.done) });
     else if (b.dataset.act === 'focus-add') input.focus();
+    else if (b.dataset.act === 'focus-task') Focus.act('start', id);
   });
   list.addEventListener('dblclick', (e) => { const t = e.target.closest('.t-text'); if (t) { st.editing = t.closest('[data-id]').dataset.id; render(); } });
   list.addEventListener('change', (e) => {
@@ -79,6 +80,7 @@ function TasksView(root) {
         ${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classFull(c))}</span>` : ''}
         <label class="due-chip${late ? ' late' : ''}"><span>${t.due ? esc(dueLabel(t.due, today)) : 'Add date'}</span><input type="date" name="due" value="${esc(t.due || '')}" aria-label="Due date"></label>
       </div></div>
+      ${t.done ? '' : `<button class="hbtn fo${Focus.taskId() === t.id ? ' on' : ''}" data-act="focus-task" aria-label="Focus on this task" title="Focus on this task for ${FocusCore.LENGTHS.focus} minutes">${btnSvg('target')}</button>`}
       <button class="hbtn del" data-act="del" aria-label="Delete task" title="Delete">${btnSvg('trash')}</button></li>`;
   }
 
@@ -94,13 +96,16 @@ function TasksView(root) {
       : [groups.overdue.length && `${groups.overdue.length} overdue`, groups.today.length && `${groups.today.length} due today`, `${open} to do`].filter(Boolean).join(' · ');
     // add form
     $$('[data-due]', form).forEach((b) => b.setAttribute('aria-checked', String(b.dataset.due === st.due)));
-    const custom = st.due && !['today', 'tomorrow'].includes(st.due);
+    const custom = st.due && !['today', 'tomorrow', 'next'].includes(st.due);
     $('.chip-date', form).classList.toggle('on', custom);
     $('.cd-lbl', form).textContent = custom ? fmtDate(st.due) : '';
     const sel = $('[name="cls"]', form);
     if (st.classId && !PL.classes.some((c) => c.id === st.classId)) st.classId = '';
     sel.innerHTML = `<option value="">No class</option>${PL.classes.map((c) => `<option value="${esc(c.id)}"${c.id === st.classId ? ' selected' : ''}>${esc(classFull(c))}</option>`).join('')}`;
     sel.hidden = !PL.classes.length;
+    const nextBtn = $('[data-due="next"]', form); const nextDate = st.classId ? Planner.nextMeeting(PL, st.classId, today) : null;
+    nextBtn.hidden = !nextDate; nextBtn.title = nextDate ? `Due ${fmtDate(nextDate)}, the next time this class meets` : '';
+    if (st.due === 'next' && !nextDate) st.due = 'today';
     // groups
     if (!open && !groups.done.length) {
       list.innerHTML = `<div class="empty">${emptyArt('check')}<h3>No tasks yet</h3><p>Type a task above and press Enter. Give it a date or a class if you like.</p></div>`;
@@ -119,6 +124,7 @@ function TasksView(root) {
     paint(list);
     if (editing) { const i = $('[name="edit"]', list); i?.focus(); i?.select(); }
   }
+  Focus.mount($('.focus-box', root));
   render();
   return { render, focus: () => input.focus() };
 }

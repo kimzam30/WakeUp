@@ -34,6 +34,7 @@ export default function Today() {
   // the next class only changes when the minute does or the timetable does
   const next = useMemo(() => Planner.upcoming(planner, new Date(nowMs), 7)[0], [planner, nowMs]);
   const isNow = !!next && next.startsAt <= nowMs;
+  const classTasks = next ? planner.tasks.filter((t) => t.classId === next.classId && !t.done).length : 0;
   const todays = useMemo(() => Planner.occurrencesOn(today, planner), [today, planner]);
   const due = useMemo(() => planner.tasks.filter((t) => !t.done && t.due && t.due <= today).sort((a, b) => (a.due! < b.due! ? -1 : 1)), [planner.tasks, today]);
   const soon = useMemo(() => planner.tasks.filter((t) => !t.done && t.due && t.due > today && t.due <= Planner.addDays(today, 7)).sort((a, b) => (a.due! < b.due! ? -1 : 1)), [planner.tasks, today]);
@@ -56,6 +57,7 @@ export default function Today() {
           <Fact icon="clock" text={`${next.date === today ? '' : `${fmtDate(next.date)} · `}${fmtTime(next.start)} – ${fmtTime(next.end)}`} />
           {!cover && (KIND[next.kind] || next.section) ? <Fact icon="users" text={[KIND[next.kind], next.section].filter(Boolean).join(' · ')} /> : null}
           <Fact icon={next.mode === 'online' ? 'video' : 'pin'} text={next.mode === 'online' ? 'Online' : next.venue || 'Venue not set'} />
+          {classTasks ? <Pressable accessibilityRole="link" onPress={() => router.navigate('/tasks')}><Fact icon="check" text={`${classTasks} task${classTasks === 1 ? '' : 's'} for this class`} accent /></Pressable> : null}
         </View>
         {STATUS[next.status] ? <Chip label={STATUS[next.status][0]} tone={STATUS[next.status][1]} /> : null}
         {next.link ? <Button kind="primary" icon="video" label="Join meeting" onPress={() => openLink(next.link)} full={cover} /> : null}
@@ -164,9 +166,9 @@ export default function Today() {
   );
 }
 
-function Fact({ icon, text }: { icon: string; text: string }) {
+function Fact({ icon, text, accent }: { icon: string; text: string; accent?: boolean }) {
   const { c } = useTheme();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(1) + 2 }}><Icon name={icon} size={15} color={c.muted} /><Txt kind="small" muted>{text}</Txt></View>;
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(1) + 2 }}><Icon name={icon} size={15} color={accent ? c.accentText : c.muted} /><Txt kind="small" style={{ color: accent ? c.accentText : c.muted }}>{text}</Txt></View>;
 }
 
 // A new version is out: one tap downloads it and opens Android's installer. "Later" hides it until the next version.

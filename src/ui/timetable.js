@@ -119,6 +119,22 @@ function TimetableView(root) {
   const field = (label, html, cls = '') => `<label class="fld ${cls}"><span>${label}</span>${html}</label>`;
   const inp = (f, v, attrs = '') => `<input data-f="${f}" value="${esc(v ?? '')}" ${attrs}>`;
 
+  // "Clashes with OS 2pm–4pm" for the date and time in the move/replace form (the class being moved doesn't count)
+  function clashText(o, s) {
+    const f = s.form;
+    const hit = Planner.clashes(PL, f.date, f.start, f.end, s.sub === 'move' ? o.key : null).filter((x) => !(s.sub === 'replace' && x.key === o.key && f.date === o.date));
+    return hit.length ? `Clashes with ${hit.map((x) => `${classLabel(x.cls)} ${fmtTime(x.start)}–${fmtTime(x.end)}`).join(', ')}` : '';
+  }
+  // the class's open tasks, with a box to add one due at its next meeting
+  function classTasks(c) {
+    const open = PL.tasks.filter((t) => t.classId === c.id && !t.done).sort((a, b) => (a.due || '9') < (b.due || '9') ? -1 : 1);
+    const next = Planner.nextMeeting(PL, c.id, Planner.today());
+    return `<div class="occ-tasks"><div class="ot-head"><span>Tasks for this class</span><span class="n">${open.length || ''}</span></div>
+      ${open.slice(0, 6).map((t) => `<div class="ot-row"><button class="check" data-act="task-done" data-id="${esc(t.id)}" aria-label="Mark done">${btnSvg('check')}</button><span class="ot-text">${esc(t.text)}</span>${t.due ? `<span class="ot-due${t.due < Planner.today() ? ' late' : ''}">${esc(fmtDate(t.due))}</span>` : ''}</div>`).join('')}
+      ${open.length > 6 ? `<p class="ot-more">and ${open.length - 6} more in Tasks</p>` : ''}
+      <input class="ot-add" data-task-for="${esc(c.id)}" data-due="${esc(next || '')}" maxlength="300" placeholder="Add a task${next ? `, due next class (${esc(fmtDate(next))})` : ''}" aria-label="Add a task for this class"></div>`;
+  }
+
   function sheetHtml() {
     const s = st.sheet;
     if (s.type === 'occ') {
@@ -132,8 +148,11 @@ function TimetableView(root) {
       let form = '';
       if (sub === 'online') form = `<div class="subform">${field('Meeting link', inp('link', s.form.link, 'type="url" placeholder="https://teams.microsoft.com/…"'), 'wide')}<div class="actions left"><button class="btn primary small" data-act="do-online">Make it online</button><button class="btn small" data-act="sub-cancel">Cancel</button></div></div>`;
       if (sub === 'move' || sub === 'replace') {
-        form = `<div class="subform"><div class="row3">${field(sub === 'move' ? 'New date' : 'Date', inp('date', s.form.date, 'type="date"'))}${field('Starts', inp('start', s.form.start, 'type="time"'))}${field('Ends', inp('end', s.form.end, 'type="time"'))}</div>
-          <div class="row2">${field('Venue', inp('venue', s.form.venue, 'placeholder="Same as usual"'))}${field('Meeting link (if online)', inp('link', s.form.link, 'type="url" placeholder="https://…"'))}</div>
+        const same = c.sessions.length ? `<div class="sess-pick"><span class="lbl">Same as</span>${c.sessions.map((x, i) => `<button type="button" class="btn small" data-act="use-sess" data-i="${i}" title="Use this session's time, venue and link">${DAYS[x.day]} ${fmtTime(x.start)}–${fmtTime(x.end)} · ${KIND[x.kind]}</button>`).join('')}</div>` : '';
+        form = `<div class="subform">${same}<div class="row3">${field(sub === 'move' ? 'New date' : 'Date', inp('date', s.form.date, 'type="date"'))}${field('Starts', inp('start', s.form.start, 'type="time"'))}${field('Ends', inp('end', s.form.end, 'type="time"'))}</div>
+          <p class="clash" role="status">${esc(clashText(o, s))}</p>
+          <div class="row2">${field('Venue', inp('venue', s.form.venue, 'placeholder="Same as usual" list="tt-venues" autocomplete="off"'))}${field('Meeting link (if online)', inp('link', s.form.link, 'type="url" placeholder="https://…"'))}</div>
+          <datalist id="tt-venues">${Planner.venues(PL).map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
           ${sub === 'replace' ? field('Note', inp('note', s.form.note, 'maxlength="200" placeholder="e.g. replaces the cancelled lecture on Tuesday"'), 'wide') : ''}
           <p class="form-error" role="alert">${esc(s.error || '')}</p>
           <div class="actions left"><button class="btn primary small" data-act="${sub === 'move' ? 'do-move' : 'do-replace'}">${sub === 'move' ? 'Move class' : 'Add replacement'}</button><button class="btn small" data-act="sub-cancel">Cancel</button></div></div>`;
@@ -148,6 +167,7 @@ function TimetableView(root) {
           ${o.link ? `<div>${btnSvg('link')}<button class="btn small primary" data-act="join" data-link="${esc(o.link)}">Join meeting</button></div>` : ''}
         </div>
         ${note ? `<p class="occ-note">${esc(note)}</p>` : ''}
+        ${form ? '' : classTasks(c)}
         ${form || `<div class="occ-actions">
           ${o.change && o.status !== 'replacement' && o.status !== 'moved-in' ? `<button class="btn small" data-act="undo">Undo this change</button>` : ''}
           ${o.status === 'replacement' ? '<button class="btn small danger" data-act="undo">Remove replacement</button>' : ''}
@@ -251,6 +271,13 @@ function TimetableView(root) {
       case 'sub-move': s.sub = 'move'; s.form = { date: Planner.addDays(o.date, 7), start: o.start, end: o.end, venue: '', link: '' }; renderSheet(); break;
       case 'sub-replace': s.sub = 'replace'; s.form = { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '' }; renderSheet(); break;
       case 'sub-cancel': s.sub = null; s.error = ''; renderSheet(); break;
+      case 'use-sess': { // copy a regular session's time, venue and link into the form
+        const x = o.cls.sessions[Number(t.dataset.i)]; if (!x) break;
+        Object.assign(s.form, { start: x.start, end: x.end, venue: x.venue || '', link: x.link || '' });
+        if (s.sub === 'replace' || s.form.date) { const d = s.form.date || o.date; s.form.date = Planner.addDays(d, (x.day - Planner.weekday(d) + 7) % 7); }
+        renderSheet(); break;
+      }
+      case 'task-done': savePlanner({ tasks: PL.tasks.map((k) => (k.id === t.dataset.id ? { ...k, done: true, doneAt: Date.now() } : k)) }); renderSheet(); break;
       case 'do-online':
         if (s.form.link && !isLink(s.form.link)) { s.error = 'Use a full https:// meeting link.'; renderSheet(); break; }
         s.sub = null; setChange(o, { type: 'online', sessionId: o.sessionId, date: o.date, link: s.form.link }); break;
@@ -288,7 +315,7 @@ function TimetableView(root) {
   root.addEventListener('input', (e) => {
     const f = e.target.dataset.f; const s = st.sheet; if (!f || !s) return;
     const v = e.target.value;
-    if (s.type === 'occ') { s.form[f] = v; return; }
+    if (s.type === 'occ') { s.form[f] = v; const cl = $('.clash', sheet); const o = findOcc(s.key, s.date); if (cl && o && ['date', 'start', 'end'].includes(f)) cl.textContent = clashText(o, s); return; }
     const parts = f.split('.');
     if (parts[0] === 's') s.draft.sessions[parts[1]][parts[2]] = parts[2] === 'day' ? Number(v) : v;
     else if (parts[0] === 'b') s.draft.breaks[parts[1]][parts[2]] = v;
@@ -316,6 +343,12 @@ function TimetableView(root) {
       if (d.start && Planner.today() < d.start) st.first = Planner.startOfWeek(d.start, WEEK_START);
       closeSheet();
     }
+  });
+  root.addEventListener('keydown', (e) => {
+    const box = e.target.closest?.('.ot-add'); if (!box || e.key !== 'Enter') return;
+    e.preventDefault(); const text = box.value.trim(); if (!text) return;
+    savePlanner({ tasks: [{ id: newId('t'), text, done: false, due: box.dataset.due || null, classId: box.dataset.taskFor, created: Date.now(), doneAt: null }, ...PL.tasks] });
+    box.value = ''; renderSheet(); $('.ot-add', sheet)?.focus();
   });
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.sheet) { e.stopPropagation(); if (st.sheet.sub) { st.sheet.sub = null; renderSheet(); } else closeSheet(); } });
 

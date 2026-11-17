@@ -83,6 +83,31 @@
     return out.sort((a, b) => a.startsAt - b.startsAt);
   }
 
+  // The next date a class actually meets, on or after `from` (YYYY-MM-DD), within `days`. For "due next class".
+  function nextMeeting(p, classId, from, days = 28) {
+    for (let i = 0; i < days; i++) {
+      const d = addDays(from, i);
+      if (occurrencesOn(d, p).some((o) => o.classId === classId && o.live)) return d;
+    }
+    return null;
+  }
+
+  // Places already in the timetable, most used first: suggestions for the venue field.
+  function venues(p) {
+    const n = new Map();
+    const add = (v) => { const k = String(v || '').trim(); if (k) n.set(k, (n.get(k) || 0) + 1); };
+    for (const c of p.classes) for (const s of c.sessions) add(s.venue);
+    for (const x of p.changes) add(x.venue);
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([v]) => v);
+  }
+
+  // Classes that take place on `date` and overlap start–end. `skip` is an occurrence key to leave out (the one moving).
+  function clashes(p, date, start, end, skip = null) {
+    if (!date || !start || !end) return [];
+    const a = mins(start); const b = mins(end);
+    return occurrencesOn(date, p).filter((o) => o.live && o.key !== skip && mins(o.start) < b && mins(o.end) > a);
+  }
+
   // Task buckets for grouping and badges.
   function bucket(t, today) {
     if (t.done) return 'done';
@@ -101,5 +126,5 @@
   // Status chips for one-off changes: [label, tone]. One list for desktop and mobile.
   const STATUS = { cancelled: ['Cancelled', 'bad'], online: ['Online today', 'info'], moved: ['Moved', 'warn'], 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'] };
   const CLASS_COLORS = ['#2f6fde', '#7c5cd6', '#1f9d63', '#d0573a', '#c2410c', '#0f8a8a', '#b4417a', '#b7791f'];
-  return { STATUS, CLASS_COLORS, ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
+  return { STATUS, CLASS_COLORS, ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, nextMeeting, venues, clashes, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
 }));

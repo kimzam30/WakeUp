@@ -1,11 +1,13 @@
-// Tasks: quick add at the top, grouped Late / Today / Coming up / Someday, done ones folded away.
+// Tasks: the focus timer and quick add at the top (pick a class to make a task due its next class), grouped Late / Today / Coming up / Someday, done ones folded away.
 // Tap the circle (or swipe the row right) to finish a task, swipe left to delete; tap the task to edit it: a sheet on phones, a panel beside the list on a
 // landscape tablet. Typing in quick add only re-renders the quick-add box, not the list.
 import { memo, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { haptic } from '../../lib/haptics';
-import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Sheet, Txt, useLayout } from '../../ui/kit';
+import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Pick, Row, Sheet, Txt, useLayout } from '../../ui/kit';
+import { FocusCard } from '../../ui/FocusCard';
+import { focus, useFocus } from '../../lib/focus';
 import { DateField } from '../../ui/DateField';
 import Animated from 'react-native-reanimated';
 import { SwipeRow, enter, leave, move } from '../../ui/motion';
@@ -51,6 +53,7 @@ export default function Tasks() {
   const body = (
     <Page max={twoCol ? 720 : 760}>
       <Txt kind="display">Tasks</Txt>
+      <FocusCard />
       <QuickAdd today={today} />
       {!tasks.length ? <Empty icon="tasks" title="Nothing to do yet" body="Add assignments, readings and reminders. Tasks with a date show up on Today, and you get a reminder on the day they’re due." /> : null}
       {groups.map(({ k, title, list: items }) => (
@@ -128,10 +131,15 @@ function QuickAdd({ today }: { today: string }) {
   const [draft, setDraft] = useState('');
   const [due, setDue] = useState<string | null>(today);
   const [picking, setPicking] = useState(false);
+  const [classId, setClassId] = useState<string | null>(null);
+  const planner = useStore((s) => s.planner);
+  const mode = useStore((s) => s.settings.classLabel);
+  const cls = classId ? planner.classes.find((k) => k.id === classId) : undefined;
+  const nextDate = useMemo(() => (cls ? Planner.nextMeeting(planner, cls.id, today) : null), [cls, planner, today]);
   const tomorrow = Planner.addDays(today, 1);
   const add = () => {
     const text = draft.trim(); if (!text) return;
-    setPlanner((p) => ({ tasks: [{ id: Schema.newId('t'), text, done: false, due, classId: null, created: Date.now(), doneAt: null }, ...p.tasks] }));
+    setPlanner((p) => ({ tasks: [{ id: Schema.newId('t'), text, done: false, due, classId: cls ? cls.id : null, created: Date.now(), doneAt: null }, ...p.tasks] }));
     setDraft(''); input.current?.clear(); haptic('light');
   };
   const chip = (v: string | null, l: string, onPress = () => setDue(v)) => {
@@ -143,7 +151,7 @@ function QuickAdd({ today }: { today: string }) {
       </Pressable>
     );
   };
-  const custom = due && due !== today && due !== tomorrow;
+  const custom = due && due !== today && due !== tomorrow && due !== nextDate;
   return (
     <Card style={{ padding: S(3), gap: S(3) }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2) }}>
@@ -152,11 +160,18 @@ function QuickAdd({ today }: { today: string }) {
         <Button kind="primary" label="Add" small onPress={add} disabled={!draft.trim()} />
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: S(2) }}>
-        {chip(today, 'Today')}
-        {chip(tomorrow, 'Tomorrow')}
+        {chip(today, nextDate === today ? 'Today · next class' : 'Today')}
+        {chip(tomorrow, nextDate === tomorrow ? 'Tomorrow · next class' : 'Tomorrow')}
         {custom ? chip(due, fmtDate(due!), () => setPicking(true)) : chip('__pick', 'Pick date…', () => setPicking(true))}
         {chip(null, 'No date')}
+        {nextDate && nextDate !== today && nextDate !== tomorrow ? chip(nextDate, `Next class · ${fmtDate(nextDate)}`) : null}
       </ScrollView>
+      {planner.classes.length ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: S(2) }}>
+          <Pick label="No class" on={!cls} onPress={() => { if (due === nextDate) setDue(today); setClassId(null); }} />
+          {planner.classes.map((k) => <Pick key={k.id} label={classLabel(k, mode)} dot={k.color} on={cls?.id === k.id} onPress={() => setClassId(k.id)} />)}
+        </ScrollView>
+      ) : null}
       {picking ? <DateTimePicker value={due ? Planner.parse(due) : new Date()} mode="date" minimumDate={new Date()} onChange={(e, d) => { setPicking(false); if (e.type === 'set' && d) setDue(Planner.ymd(d)); }} /> : null}
     </Card>
   );
@@ -167,6 +182,7 @@ function TaskEditor({ task, onClose, inline }: { task: Task; onClose: () => void
   const classes = useStore((s) => s.planner.classes);
   const mode = useStore((s) => s.settings.classLabel);
   const [d, setD] = useState<Task>(task);
+  const fs = useFocus();
   const empty = !d.text.trim();
   const save = () => { if (empty) return; setPlanner((p) => ({ tasks: p.tasks.map((x) => (x.id === d.id ? { ...d, text: d.text.trim() } : x)) })); onClose(); };
   const del = () => Alert.alert('Delete this task?', d.text, [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { setPlanner((p) => ({ tasks: p.tasks.filter((x) => x.id !== d.id) })); onClose(); } }]);
@@ -190,6 +206,7 @@ function TaskEditor({ task, onClose, inline }: { task: Task; onClose: () => void
           })}
         </View>
       </View>
+      {!d.done ? <Button icon="target" label={fs.phase !== 'idle' && fs.taskId === d.id ? 'Focusing on this task' : 'Focus on this task'} disabled={fs.phase !== 'idle' && fs.taskId === d.id} onPress={() => { focus.start(d.id); onClose(); }} /> : null}
       <View style={{ flexDirection: 'row', gap: S(3), paddingTop: S(2) }}>
         <Button kind="danger" icon="trash" label="Delete" onPress={del} />
         <View style={{ flex: 1 }} />

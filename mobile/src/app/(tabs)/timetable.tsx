@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
-import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
+import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Pick, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
 import { SwipePager } from '../../ui/motion';
 import { DateField, TimeField } from '../../ui/DateField';
@@ -14,6 +14,7 @@ import { R, S, STATUS, useTheme } from '../../ui/theme';
 import { Planner, Schema } from '../../lib/shared';
 import { setPlanner, useStore } from '../../lib/store';
 import { DAYS, KIND, MONTHS, classLabel, classSub, fmtDate, fmtTime } from '../../lib/format';
+import { ClassTasks } from '../../ui/ClassTasks';
 import { useToday } from '../../lib/hooks';
 import type { Change, Occurrence, Semester } from '../../lib/types';
 
@@ -190,7 +191,7 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
                         {sub && h > 60 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontWeight: '500', fontSize: 12 }}>{sub}</Txt> : null}
                         {h > 44 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{[KIND[o.kind], o.section].filter(Boolean).join(' · ')}</Txt> : null}
                         {h > 76 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
-                        {chip && h >= 44 ? <View style={{ marginTop: 'auto', maxWidth: '100%' }}><Chip label={chip[0]} tone={chip[1]} /></View> : null}
+                        {chip && h >= 44 ? <View style={{ marginTop: 'auto', maxWidth: '100%' }}><Chip label={chip[0]} tone={chip[1]} small={col < 132} /></View> : null}
                       </Pressable>
                     );
                   })}
@@ -274,6 +275,18 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
       onDone();
     }
   };
+  // copy a regular session's time, venue and link, on that weekday (from the date already in the form)
+  const copySession = (x: Occurrence['cls']['sessions'][number]) => {
+    const d = f.date || o.date;
+    set({ start: x.start, end: x.end, venue: x.venue || '', link: x.link || '', date: Planner.addDays(d, (x.day - Planner.weekday(d) + 7) % 7) });
+  };
+  const planner = useStore((s) => s.planner);
+  const places = useMemo(() => Planner.venues(planner).slice(0, 8), [planner]);
+  const clash = useMemo(() => {
+    if (!sub || sub === 'online' || !f.date || !f.start || !f.end) return '';
+    const hit = Planner.clashes(planner, f.date, f.start, f.end, sub === 'move' ? o.key : null).filter((x) => !(sub === 'replace' && x.key === o.key && f.date === o.date));
+    return hit.length ? `Clashes with ${hit.map((x) => `${classLabel(x.cls, mode)} ${fmtTime(x.start)}–${fmtTime(x.end)}`).join(', ')}` : '';
+  }, [sub, f.date, f.start, f.end, planner, o.key, o.date, mode]);
   const note = o.status === 'cancelled' ? 'This class is cancelled on this date.'
     : o.status === 'moved' ? `Moved to ${o.toDate ? fmtDate(o.toDate) : 'another day'}${o.change?.start ? `, ${fmtTime(o.change.start)}` : ''}.`
       : o.status === 'moved-in' ? `Moved here from ${o.fromDate ? fmtDate(o.fromDate) : 'another day'}.`
@@ -300,12 +313,26 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
         <View style={{ gap: S(3) }}>
           <Txt kind="headline">{sub === 'online' ? 'Online this time' : sub === 'move' ? 'Postpone or move' : 'Add a replacement class'}</Txt>
           {sub !== 'online' ? <>
+            {o.cls.sessions.length ? (
+              <View style={{ gap: S(1) }}>
+                <Txt kind="small" muted>Same time as</Txt>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: S(2) }}>
+                  {o.cls.sessions.map((x) => <Pick key={x.id} label={`${DAYS[x.day]} ${fmtTime(x.start)}–${fmtTime(x.end)} · ${KIND[x.kind]}`} on={f.start === x.start && f.end === x.end && !!f.date && Planner.weekday(f.date) === x.day} onPress={() => copySession(x)} />)}
+                </ScrollView>
+              </View>
+            ) : null}
             <DateField label={sub === 'move' ? 'New date' : 'Date'} value={f.date} onChange={(date) => set({ date })} />
             <View style={{ flexDirection: 'row', gap: S(3) }}>
               <View style={{ flex: 1 }}><TimeField label="Starts" value={f.start} onChange={(start) => set({ start })} /></View>
               <View style={{ flex: 1 }}><TimeField label="Ends" value={f.end} onChange={(end) => set({ end })} /></View>
             </View>
+            {clash ? <View style={{ flexDirection: 'row', gap: S(2), alignItems: 'center' }}><Icon name="info" size={16} color={c.warn} /><Txt kind="small" style={{ color: c.warn, flex: 1 }}>{clash}</Txt></View> : null}
             <Field label="Venue" value={f.venue} onChangeText={(venue) => set({ venue })} placeholder="Same as usual" maxLength={80} />
+            {places.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: S(2) }}>
+                {places.map((v) => <Pick key={v} icon="pin" label={v} on={f.venue === v} onPress={() => set({ venue: v })} />)}
+              </ScrollView>
+            ) : null}
           </> : null}
           <Field label={sub === 'online' ? 'Meeting link (optional)' : 'Meeting link (if online)'} value={f.link} onChangeText={(link) => set({ link })} placeholder="https://…" keyboardType="url" autoCapitalize="none" autoCorrect={false} />
           {sub === 'replace' ? <Field label="Note" value={f.note} onChangeText={(n) => set({ note: n })} placeholder="e.g. replaces the cancelled lecture on Tuesday" maxLength={200} /> : null}
@@ -317,6 +344,7 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
         </View>
       ) : (
         <View style={{ gap: S(2) }}>
+          <ClassTasks cls={o.cls} />
           {changeable ? <Txt kind="small" muted>Just this date</Txt> : null}
           <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
             {o.change && o.status !== 'replacement' && o.status !== 'moved-in' ? <Button small icon="reload" label="Undo this change" onPress={() => setChange(null)} /> : null}

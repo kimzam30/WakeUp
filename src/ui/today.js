@@ -33,11 +33,12 @@ function renderToday() {
   } else {
     const c = nxt.cls; const isNow = nxt === cur;
     const when = isNow ? `Now, until ${fmtTime(nxt.end)}` : nxt.date === today ? untilText(nxt.startsAt - now) : fmtDate(nxt.date, true);
+    const ctasks = PL.tasks.filter((t) => t.classId === c.id && !t.done).length;
     const chip = { 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'], online: ['Online today', 'info'] }[nxt.status];
     next = `${head(isNow ? 'Happening now' : 'Next class', `<span class="muted small">${esc(when)}</span>`)}
       <div class="next" data-c="${esc(c.color)}"><span class="cls-ico">${classIcon(c)}</span>
       <div class="next-main"><h3>${esc(classLabel(c))}${classSub(c) ? ` <span>${esc(classSub(c))}</span>` : ''}${chip ? ` <span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</h3>
-      <div class="facts-row"><span>${btnSvg('clock')}${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${btnSvg('users')}${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span></div></div>
+      <div class="facts-row"><span>${btnSvg('clock')}${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${btnSvg('users')}${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span>${ctasks ? `<span class="next-tasks">${btnSvg('check')}${ctasks} task${ctasks === 1 ? '' : 's'} for this class</span>` : ''}</div></div>
       ${nxt.link ? `<button class="btn primary" data-act="join" data-link="${esc(nxt.link)}">${btnSvg('video')}Join meeting</button>` : ''}</div>`;
   }
 

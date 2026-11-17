@@ -23,7 +23,9 @@ Notifications.setNotificationHandler({
 async function channels() {
   await Notifications.setNotificationChannelAsync('classes', { name: 'Class reminders', description: 'A heads-up before each class', importance: Notifications.AndroidImportance.HIGH });
   await Notifications.setNotificationChannelAsync('tasks', { name: 'Tasks due', description: 'Tasks due today, once a day', importance: Notifications.AndroidImportance.DEFAULT });
+  await Notifications.setNotificationChannelAsync('focus', { name: 'Focus timer', description: 'When a focus session or a break ends', importance: Notifications.AndroidImportance.HIGH });
 }
+export const notificationsReady = () => ready;
 const ready = channels().catch(() => {});
 
 export type Permission = 'granted' | 'denied' | 'undetermined';
@@ -99,6 +101,7 @@ async function run() {
   const wantById = new Map(want.map((w) => [w.id, w]));
   const keep = new Set<string>();
   for (const n of have) {
+    if (n.identifier.startsWith('focus')) continue; // the focus timer's own (lib/focus.ts)
     const w = wantById.get(n.identifier);
     const same = w && n.content.title === w.title && n.content.body === w.body && (n.trigger as { value?: number })?.value === w.at;
     if (same) keep.add(n.identifier); else await Notifications.cancelScheduledNotificationAsync(n.identifier);

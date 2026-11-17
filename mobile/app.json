@@ -2,7 +2,7 @@
   "expo": {
     "name": "WakeUp",
     "slug": "wakeup",
-    "version": "2.5.1",
+    "version": "2.6.0",
     "scheme": "wakeup",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "my.kimzam.wakeup",
-      "versionCode": 20501,
+      "versionCode": 20600,
       "adaptiveIcon": {
         "backgroundColor": "#0B2A8F",
         "foregroundImage": "./assets/android-icon-foreground.png",
