@@ -86,7 +86,11 @@ jobs:
           WAKEUP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           WAKEUP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           WAKEUP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: cd android && ./gradlew assembleRelease --no-daemon
+        # retried: a plugin download from the Gradle portal sometimes fails on a fresh runner
+        run: |
+          cd android
+          for i in 1 2 3; do ./gradlew assembleRelease --no-daemon && exit 0; echo "Build attempt $i failed; retrying"; sleep 20; done
+          exit 1
       - run: mv android/app/build/outputs/apk/release/app-release.apk "WakeUp-${{ needs.version.outputs.version }}.apk"
       - uses: actions/upload-artifact@v4
         with:
@@ -103,10 +107,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y python3-gi python3-cairo gir1.2-rsvg-2.0
       - run: npm ci
       - run: npm test
-      - run: python3 scripts/make-icons.py && npx electron-builder --linux dir AppImage
+      - run: npx electron-builder --linux dir AppImage # build/icons is committed; scripts/make-icons.py only when the logo changes
       - run: tar -czf "dist/WakeUp-${{ needs.version.outputs.version }}-linux-x64.tar.gz" -C dist linux-unpacked
       - uses: actions/upload-artifact@v4
         with:
