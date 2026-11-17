@@ -1412,7 +1412,25 @@ ipcMain.on('open-link', (_e, url) => { if (typeof url === 'string') openMeeting(
 
 // ---- class reminders: one timer, re-armed for the next class (and at least every 30 min, so sleep/suspend can't skew it)
 let reminderTimer = null; const reminded = new Set(); let remindedDay = '';
+// the evening before a class with notes (a quiz, a test, something to bring), a heads-up at 8pm
+let eveningTimer = null; let eveningDone = '';
+function scheduleEvening() {
+  clearTimeout(eveningTimer);
+  if (state.settings.notify.timetable === false) return;
+  const today = Planner.today(); const at = Planner.at(today, '20:00'); const now = Date.now();
+  if (now >= at && eveningDone !== today && now - at < 3 * 3600e3) { eveningDone = today; headsUp(Planner.addDays(today, 1)); }
+  const next = now < at ? at : Planner.at(Planner.addDays(today, 1), '20:00');
+  eveningTimer = setTimeout(scheduleEvening, Math.min(next - now + 1000, 30 * 60e3));
+}
+function headsUp(day) {
+  const list = Planner.occurrencesOn(day, state.planner).filter((o) => o.live && o.notes?.length);
+  if (!list.length || !Notification.isSupported()) return;
+  const n = new Notification({ title: `Tomorrow: ${list.map((o) => labelFor(o.cls)).join(', ')}`, body: list.map((o) => `${labelFor(o.cls)} ${o.start}: ${Planner.notesLine(o.notes)}`).join('\n'), icon: ICON });
+  n.on('click', () => { showWindow(); send('cmd', { name: 'open', arg: 'timetable' }); });
+  n.show();
+}
 function scheduleReminder() {
+  scheduleEvening();
   clearTimeout(reminderTimer);
   const day = Planner.today(); if (day !== remindedDay) { remindedDay = day; reminded.clear(); } // only today's matter
   const lead = state.settings.reminders * 60e3;
@@ -1440,7 +1458,7 @@ function remind(o) {
   const kind = { lecture: 'Lecture', tutorial: 'Tutorial', lab: 'Lab' }[o.kind];
   const n = new Notification({
     title: `${labelFor(o.cls)} ${kind} in ${mins} min`,
-    body: `${who}${o.mode === 'online' ? 'it’s online' : `it’s at ${o.venue || 'the usual place'}`}${o.status === 'replacement' ? ' (replacement class)' : o.status === 'moved-in' ? ' (moved here)' : ''}.${o.mode === 'online' && o.link ? ' Click to join.' : ''}`,
+    body: `${who}${o.mode === 'online' ? 'it’s online' : `it’s at ${o.venue || 'the usual place'}`}${o.status === 'replacement' ? ' (replacement class)' : o.status === 'moved-in' ? ' (moved here)' : ''}.${o.notes?.length ? ` ${Planner.notesLine(o.notes)}.` : ''}${o.mode === 'online' && o.link ? ' Click to join.' : ''}`,
     icon: ICON,
   });
   n.on('click', () => { if (o.mode === 'online' && o.link) openMeeting(o.link); else { showWindow(); send('cmd', { name: 'open', arg: 'timetable' }); } });

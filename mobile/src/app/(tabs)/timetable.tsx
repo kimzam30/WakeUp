@@ -16,7 +16,8 @@ import { setPlanner, useStore } from '../../lib/store';
 import { DAYS, KIND, MONTHS, classLabel, classSub, fmtDate, fmtTime } from '../../lib/format';
 import { ClassTasks } from '../../ui/ClassTasks';
 import { useToday } from '../../lib/hooks';
-import type { Change, Occurrence, Semester } from '../../lib/types';
+import type { Change, Kind, Occurrence, Semester } from '../../lib/types';
+import { ClassNotes } from '../../ui/ClassNotes';
 
 const openLink = (url: string) => Linking.openURL(url).catch(() => {});
 
@@ -33,7 +34,9 @@ export default function Timetable() {
   const today = useToday();
   const [first, setFirst] = useState(() => Planner.startOfWeek(today, weekStart));
   useEffect(() => { setFirst(Planner.startOfWeek(today, weekStart)); }, [weekStart, today]);
-  const [sel, setSel] = useState<Occurrence | null>(null);
+  const [picked, setSel] = useState<Occurrence | null>(null);
+  // the picked class meeting, read again from the timetable so edits (kind, notes) show at once
+  const sel = useMemo(() => (picked ? Planner.occurrencesOn(picked.date, planner).find((x) => x.key === picked.key) ?? picked : null), [picked, planner]);
   const [semOpen, setSemOpen] = useState(false);
   const panel = twoCol && view === 'week'; // details beside the grid instead of a sheet
 
@@ -89,6 +92,7 @@ export default function Timetable() {
                       <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
                         <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
                         <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                        {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
                       </View>
                       {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
                     </Row>
@@ -190,7 +194,8 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
                         <Txt kind="small" numberOfLines={1} style={{ fontWeight: '700', textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}</Txt>
                         {sub && h > 60 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontWeight: '500', fontSize: 12 }}>{sub}</Txt> : null}
                         {h > 44 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{[KIND[o.kind], o.section].filter(Boolean).join(' · ')}</Txt> : null}
-                        {h > 76 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
+                        {h > 76 + extra && !o.notes?.length ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
+                        {o.notes?.length && h > 76 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: c.warn }}>{o.notes.map((n) => Planner.NOTE_TAGS[n.tag ?? 'other']?.[0] ?? 'Note').join(' · ')}</Txt> : null}
                         {chip && h >= 44 ? <View style={{ marginTop: 'auto', maxWidth: '100%' }}><Chip label={chip[0]} tone={chip[1]} small={col < 132} /></View> : null}
                       </Pressable>
                     );
@@ -236,8 +241,9 @@ function SidePanel({ o, onClose }: { o: Occurrence; onClose: () => void }) {
 }
 
 const isLink = (v: string) => /^https:\/\/\S+$/i.test(v.trim());
+const KIND_OPTIONS: [Kind, string][] = [['lecture', 'Lecture'], ['tutorial', 'Tutorial'], ['lab', 'Lab']];
 const NO_CHANGE = { sessionId: null, classId: null, toDate: null, start: null, end: null, venue: '', link: '', note: '' };
-type Form = { date: string | null; start: string; end: string; venue: string; link: string; note: string };
+type Form = { date: string | null; start: string; end: string; venue: string; link: string; note: string; kind?: Kind; section?: string };
 
 // The same choices as the desktop app: cancel, online, move or replace one date, and undo any of them.
 function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
@@ -250,7 +256,8 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
   // one change per class session per date; replacements are separate entries
   const setChange = (change: Partial<Change> | null) => {
     setPlanner((p) => {
-      const rest = p.changes.filter((x) => x.id !== o.change?.id && !(x.sessionId && x.sessionId === o.sessionId && x.date === o.date && x.type !== 'replacement'));
+      const gone = !change && (o.status === 'replacement' || o.status === 'moved-in'); // its notes go with it
+      const rest = p.changes.filter((x) => x.id !== o.change?.id && !(x.sessionId && x.sessionId === o.sessionId && x.date === o.date && x.type !== 'replacement' && x.type !== 'note') && !(gone && x.type === 'note' && x.ref === o.ref));
       return { changes: change ? [...rest, { id: Schema.newId('x'), ...NO_CHANGE, date: o.date, ...change } as Change] : rest };
     });
     onDone();
@@ -258,7 +265,7 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
   const open = (kind: 'online' | 'move' | 'replace') => {
     setSub(kind); setErr('');
     setF(kind === 'move' ? { date: Planner.addDays(o.date, 7), start: o.start, end: o.end, venue: '', link: '', note: '' }
-      : kind === 'replace' ? { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '' }
+      : kind === 'replace' ? { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '', kind: o.kind, section: o.section || '' }
         : { date: o.date, start: o.start, end: o.end, venue: '', link: o.link || '', note: '' });
   };
   const submit = () => {
@@ -271,14 +278,14 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
     const when = { start: f.start, end: f.end, venue: f.venue.trim(), link: f.link.trim() };
     if (sub === 'move') setChange({ type: 'moved', sessionId: o.sessionId, toDate: f.date, ...when });
     else {
-      setPlanner((p) => ({ changes: [...p.changes, { id: Schema.newId('x'), ...NO_CHANGE, type: 'replacement', classId: o.classId, date: f.date!, ...when, note: f.note.trim() } as Change] }));
+      setPlanner((p) => ({ changes: [...p.changes, { id: Schema.newId('x'), ...NO_CHANGE, type: 'replacement', classId: o.classId, date: f.date!, ...when, note: f.note.trim(), kind: f.kind ?? 'lecture', section: f.section ?? '' } as Change] }));
       onDone();
     }
   };
   // copy a regular session's time, venue and link, on that weekday (from the date already in the form)
   const copySession = (x: Occurrence['cls']['sessions'][number]) => {
     const d = f.date || o.date;
-    set({ start: x.start, end: x.end, venue: x.venue || '', link: x.link || '', date: Planner.addDays(d, (x.day - Planner.weekday(d) + 7) % 7) });
+    set({ start: x.start, end: x.end, venue: x.venue || '', link: x.link || '', kind: x.kind, section: x.section || '', date: Planner.addDays(d, (x.day - Planner.weekday(d) + 7) % 7) });
   };
   const planner = useStore((s) => s.planner);
   const places = useMemo(() => Planner.venues(planner).slice(0, 8), [planner]);
@@ -335,6 +342,7 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
             ) : null}
           </> : null}
           <Field label={sub === 'online' ? 'Meeting link (optional)' : 'Meeting link (if online)'} value={f.link} onChangeText={(link) => set({ link })} placeholder="https://…" keyboardType="url" autoCapitalize="none" autoCorrect={false} />
+          {sub === 'replace' ? <Segmented label="Kind" value={f.kind ?? 'lecture'} onChange={(k) => set({ kind: k })} options={KIND_OPTIONS} /> : null}
           {sub === 'replace' ? <Field label="Note" value={f.note} onChangeText={(n) => set({ note: n })} placeholder="e.g. replaces the cancelled lecture on Tuesday" maxLength={200} /> : null}
           {err ? <Txt kind="small" style={{ color: c.bad }}>{err}</Txt> : null}
           <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
@@ -344,6 +352,13 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
         </View>
       ) : (
         <View style={{ gap: S(2) }}>
+          {o.status === 'replacement' && o.change ? (
+            <View style={{ gap: S(1), marginBottom: S(2) }}>
+              <Txt kind="small" muted>Kind</Txt>
+              <Segmented label="Kind" value={o.kind} options={KIND_OPTIONS} onChange={(k) => setPlanner((p) => ({ changes: p.changes.map((x) => (x.id === o.change!.id ? { ...x, kind: k } : x)) }))} />
+            </View>
+          ) : null}
+          <ClassNotes o={o} />
           <ClassTasks cls={o.cls} />
           {changeable ? <Txt kind="small" muted>Just this date</Txt> : null}
           <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>

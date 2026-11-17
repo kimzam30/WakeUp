@@ -65,3 +65,27 @@ test('venues are ranked by use and clashes find overlaps', () => {
   assert.deepEqual(P.clashes(plan(), '2026-11-16', '08:00', '09:00').map((o) => o.classId), []); // A is cancelled that day
   assert.deepEqual(P.clashes(plan(), '2026-11-23', '11:00', '12:00'), []);
 });
+
+test('replacements keep their kind; notes attach to one class meeting', () => {
+  const S = require('../src/shared/planner-schema.js');
+  const p = plan();
+  p.changes.push(
+    { id: 'r1', type: 'replacement', classId: 'a', date: '2026-11-18', start: '08:00', end: '10:00', kind: 'tutorial', section: 'TT5L', venue: '', link: '', note: '' },
+    { id: 'n1', type: 'note', classId: 'a', ref: 'r1', date: '2026-11-18', tag: 'quiz', note: '' },
+    { id: 'n2', type: 'note', classId: 'b', ref: 's2', date: '2026-11-23', tag: 'bring', note: 'calculator' },
+    { id: 'n3', type: 'note', classId: 'b', ref: 's2', date: '2026-11-23', tag: 'other', note: '' }, // empty: dropped
+    { id: 'n4', type: 'note', classId: 'b', ref: 'BAD REF', date: '2026-11-23', tag: 'quiz' }, // bad ref: dropped
+  );
+  const c = S.cleanPlanner(p);
+  assert.deepEqual(c.changes.map((x) => x.id), ['x1', 'r1', 'n1', 'n2']);
+  const wed = P.occurrencesOn('2026-11-18', c);
+  assert.equal(wed.find((o) => o.status === 'replacement').kind, 'tutorial');
+  assert.equal(wed.find((o) => o.status === 'replacement').section, 'TT5L');
+  assert.equal(P.notesLine(wed.find((o) => o.status === 'replacement').notes), 'Quiz');
+  const mon = P.occurrencesOn('2026-11-23', c);
+  const lab = mon.find((o) => o.sessionId === 's2');
+  assert.equal(P.notesLine(lab.notes), 'Bring: calculator');
+  assert.equal(lab.change, null); // a note isn't a change to the class
+  assert.equal(lab.status, 'normal');
+  assert.equal(S.cleanPlanner({ ...p, changes: [{ id: 'r2', type: 'replacement', classId: 'a', date: '2026-11-18', start: '08:00', end: '09:00' }] }).changes[0].kind, 'lecture');
+});

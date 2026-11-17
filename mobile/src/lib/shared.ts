@@ -13,6 +13,8 @@ export const Planner: {
   bucket: (t: { done: boolean; due: string | null }, today: string) => 'done' | 'someday' | 'overdue' | 'today' | 'upcoming';
   nextMeeting: (p: PlannerData, classId: string, from: string, days?: number) => string | null;
   venues: (p: PlannerData) => string[];
+  NOTE_TAGS: Record<import('./types').NoteTag, [string, '' | 'bad' | 'info' | 'warn' | 'good']>;
+  noteText: (n: import('./types').Change) => string; notesLine: (list?: import('./types').Change[]) => string;
   clashes: (p: PlannerData, date: string | null, start: string, end: string, skip?: string | null) => Occurrence[];
   ICON_KEYS: string[];
   STATUS: Record<string, [string, 'bad' | 'info' | 'warn' | 'good']>; CLASS_COLORS: string[];

@@ -45,12 +45,21 @@
       };
     });
     const classIds = new Set(classes.map((c) => c.id));
-    const changes = (Array.isArray(r.changes) ? r.changes : []).slice(-500).filter(isObj).map((x) => ({
-      id: ident(x.id, 'x'), type: oneOf(x.type, ['cancelled', 'online', 'moved', 'replacement'], null),
-      sessionId: sessionIds.has(x.sessionId) ? x.sessionId : null, classId: classIds.has(x.classId) ? x.classId : null,
-      date: ymd(x.date), toDate: ymd(x.toDate), start: hm(x.start), end: hm(x.end),
-      venue: text(x.venue, 80), link: httpsLink(x.link), note: text(x.note, 200),
-    })).filter((x) => x.type && x.date && (x.type === 'replacement' ? x.classId && x.start && x.end > x.start : x.sessionId)
+    // One-off changes to a class meeting, plus notes on one ('note': a quiz, a test, something to bring…).
+    // A replacement has its own kind and section; a note points at its meeting with `ref` (a session id, or the id
+    // of the replacement or move that created the meeting) and the date.
+    const changes = (Array.isArray(r.changes) ? r.changes : []).slice(-1000).filter(isObj).map((x) => {
+      const type = oneOf(x.type, ['cancelled', 'online', 'moved', 'replacement', 'note'], null);
+      const c = {
+        id: ident(x.id, 'x'), type,
+        sessionId: sessionIds.has(x.sessionId) ? x.sessionId : null, classId: classIds.has(x.classId) ? x.classId : null,
+        date: ymd(x.date), toDate: ymd(x.toDate), start: hm(x.start), end: hm(x.end),
+        venue: text(x.venue, 80), link: httpsLink(x.link), note: text(x.note, 200),
+      };
+      if (type === 'replacement') { c.kind = oneOf(x.kind, ['lecture', 'tutorial', 'lab'], 'lecture'); c.section = text(x.section, 20); }
+      if (type === 'note') { c.tag = oneOf(x.tag, Object.keys(Planner.NOTE_TAGS), 'other'); c.ref = typeof x.ref === 'string' && /^[a-z0-9-]{1,40}$/.test(x.ref) ? x.ref : null; }
+      return c;
+    }).filter((x) => x.type && x.date && (x.type === 'replacement' ? x.classId && x.start && x.end > x.start : x.type === 'note' ? x.classId && x.ref && (x.note || x.tag !== 'other') : x.sessionId)
       && (x.type !== 'moved' || x.toDate) && (!x.start || !x.end || x.end > x.start));
     const tasks = (Array.isArray(r.tasks) ? r.tasks : []).slice(0, 1000).filter(isObj).map((t) => ({
       id: ident(t.id, 't'), text: text(t.text, 300), done: bool(t.done, false), due: ymd(t.due),

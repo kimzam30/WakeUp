@@ -38,7 +38,7 @@ function renderToday() {
     next = `${head(isNow ? 'Happening now' : 'Next class', `<span class="muted small">${esc(when)}</span>`)}
       <div class="next" data-c="${esc(c.color)}"><span class="cls-ico">${classIcon(c)}</span>
       <div class="next-main"><h3>${esc(classLabel(c))}${classSub(c) ? ` <span>${esc(classSub(c))}</span>` : ''}${chip ? ` <span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</h3>
-      <div class="facts-row"><span>${btnSvg('clock')}${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${btnSvg('users')}${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span>${ctasks ? `<span class="next-tasks">${btnSvg('check')}${ctasks} task${ctasks === 1 ? '' : 's'} for this class</span>` : ''}</div></div>
+      <div class="facts-row"><span>${btnSvg('clock')}${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${btnSvg('users')}${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span>${ctasks ? `<span class="next-tasks">${btnSvg('check')}${ctasks} task${ctasks === 1 ? '' : 's'} for this class</span>` : ''}</div>${nxt.notes?.length ? `<div class="next-notes">${esc(Planner.notesLine(nxt.notes))}</div>` : ''}</div>
       ${nxt.link ? `<button class="btn primary" data-act="join" data-link="${esc(nxt.link)}">${btnSvg('video')}Join meeting</button>` : ''}</div>`;
   }
 
@@ -50,7 +50,7 @@ function renderToday() {
       const done = Planner.at(today, o.end) < now.getTime(); const live = Planner.at(today, o.start) <= now.getTime() && !done;
       const chip = STATUS[o.status];
       return `<li class="${o.live ? '' : 'off'}${done ? ' past' : ''}${live ? ' live' : ''}" data-c="${esc(o.cls.color)}"><span class="time">${fmtTime(o.start)}</span><span class="rail"></span>
-        <span class="main-t"><b>${esc(classLabel(o.cls))}${classSub(o.cls) ? ` <span class="sub-name">${esc(classSub(o.cls))}</span>` : ''}</b><small>${esc([KIND[o.kind], o.section, o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small></span>${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</li>`;
+        <span class="main-t"><b>${esc(classLabel(o.cls))}${classSub(o.cls) ? ` <span class="sub-name">${esc(classSub(o.cls))}</span>` : ''}</b><small>${esc([KIND[o.kind], o.section, o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small>${o.notes?.length ? `<small class="ag-notes">${esc(Planner.notesLine(o.notes))}</small>` : ''}</span>${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</li>`;
     }).join('')}</ul>` : `<p class="muted rows-empty">${Planner.inBreak(today, PL.semester) ? 'It’s a break. No classes today.' : 'No classes today.'}</p>`}</div>` : '';
 
   // tasks

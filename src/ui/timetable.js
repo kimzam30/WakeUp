@@ -65,6 +65,7 @@ function TimetableView(root) {
       ${classSub(o.cls) ? `<em class="b-name">${esc(classSub(o.cls))}</em>` : ''}
       <span class="b-sub">${esc([KIND[o.kind], o.section].filter(Boolean).join(' · '))}</span>
       <span class="b-sub">${esc(o.mode === 'online' ? 'Online' : o.venue || '')}</span>
+      ${o.notes?.length ? `<span class="b-notes" title="${esc(Planner.notesLine(o.notes))}">${o.notes.map((n) => esc(Planner.NOTE_TAGS[n.tag]?.[0] || 'Note')).join(' · ')}</span>` : ''}
       ${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</button>`;
   }
   function layoutWeek() {
@@ -100,7 +101,7 @@ function TimetableView(root) {
       html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}"><h3>${d === today ? 'Today · ' : ''}${fmtDate(d, true)}${br ? ` <span class="chip warn">${esc(br.label)}</span>` : ''}</h3>
         ${list.map((o) => { const chip = STATUS_CHIP[o.status]; return `<button class="ag-row st-${o.status}" data-key="${esc(o.key)}" data-date="${d}" data-c="${esc(o.cls.color)}">
           <span class="ag-time">${fmtTime(o.start)}<small>${fmtTime(o.end)}</small></span><span class="ag-ico">${classIcon(o.cls)}</span>
-          <span class="ag-main"><b>${esc(classLabel(o.cls))}</b> ${esc(classSub(o.cls))}<small>${esc([KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small></span>
+          <span class="ag-main"><b>${esc(classLabel(o.cls))}</b> ${esc(classSub(o.cls))}<small>${esc([KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small>${o.notes?.length ? `<small class="ag-notes">${esc(Planner.notesLine(o.notes))}</small>` : ''}</span>
           ${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</button>`; }).join('')}</section>`;
     }
     return html || `<div class="empty small">${emptyArt('cal')}<h3>No classes in these two weeks</h3><p>Nothing is scheduled. Use the arrows to look further ahead.</p></div>`;
@@ -124,6 +125,23 @@ function TimetableView(root) {
     const f = s.form;
     const hit = Planner.clashes(PL, f.date, f.start, f.end, s.sub === 'move' ? o.key : null).filter((x) => !(s.sub === 'replace' && x.key === o.key && f.date === o.date));
     return hit.length ? `Clashes with ${hit.map((x) => `${classLabel(x.cls)} ${fmtTime(x.start)}–${fmtTime(x.end)}`).join(', ')}` : '';
+  }
+  const kindSeg = (v, act) => `<div class="seg" role="radiogroup" aria-label="Kind">${Object.entries(KIND).map(([k, l]) => `<button type="button" role="radio" aria-checked="${k === v}" data-act="${act}" data-k="${k}">${l}</button>`).join('')}</div>`;
+  // what's on in this class meeting (quiz, test…) or what to bring, and a row to add one, here or at the next class
+  function classNotes(o, s) {
+    const tag = s.noteTag || 'quiz'; const forNext = s.noteFor === 'next';
+    const next = nextOcc(o);
+    return `<div class="occ-notes"><div class="ot-head"><span>In this class</span></div>
+      ${(o.notes || []).map((n) => `<div class="on-row"><span class="chip ${Planner.NOTE_TAGS[n.tag]?.[1] || ''}">${esc(Planner.NOTE_TAGS[n.tag]?.[0] || 'Note')}</span><span class="on-text">${esc(n.note || '')}</span><button class="hbtn" data-act="note-del" data-id="${esc(n.id)}" aria-label="Remove note" title="Remove">${btnSvg('close')}</button></div>`).join('')}
+      <div class="on-add"><div class="chips" role="radiogroup" aria-label="What">${Object.entries(Planner.NOTE_TAGS).map(([k, [l]]) => `<button type="button" role="radio" aria-checked="${k === tag}" data-act="note-tag" data-tag="${k}">${l}</button>`).join('')}</div>
+        <div class="on-line"><input class="on-input" maxlength="200" placeholder="${tag === 'bring' ? 'What to bring or do, e.g. calculator, printed notes' : tag === 'other' ? 'e.g. read chapter 3 before class' : 'Details (optional), e.g. chapters 1–3'}" aria-label="Note">
+          ${next ? `<div class="seg small" role="radiogroup" aria-label="For"><button type="button" role="radio" aria-checked="${!forNext}" data-act="note-for" data-v="this">This class</button><button type="button" role="radio" aria-checked="${forNext}" data-act="note-for" data-v="next" title="${esc(fmtDate(next.date, true))}">Next class</button></div>` : ''}
+          <button class="btn small primary" data-act="note-add">Add</button></div></div></div>`;
+  }
+  // the same class's next meeting after this one (for "remind me next class")
+  function nextOcc(o) {
+    for (let i = 1; i <= 28; i++) { const d = Planner.addDays(o.date, i); const hit = Planner.occurrencesOn(d, PL).find((x) => x.classId === o.classId && x.live); if (hit) return hit; }
+    return null;
   }
   // the class's open tasks, with a box to add one due at its next meeting
   function classTasks(c) {
@@ -153,7 +171,7 @@ function TimetableView(root) {
           <p class="clash" role="status">${esc(clashText(o, s))}</p>
           <div class="row2">${field('Venue', inp('venue', s.form.venue, 'placeholder="Same as usual" list="tt-venues" autocomplete="off"'))}${field('Meeting link (if online)', inp('link', s.form.link, 'type="url" placeholder="https://…"'))}</div>
           <datalist id="tt-venues">${Planner.venues(PL).map((v) => `<option value="${esc(v)}">`).join('')}</datalist>
-          ${sub === 'replace' ? field('Note', inp('note', s.form.note, 'maxlength="200" placeholder="e.g. replaces the cancelled lecture on Tuesday"'), 'wide') : ''}
+          ${sub === 'replace' ? `<div class="pick-row"><span class="lbl">Kind</span>${kindSeg(s.form.kind, 'form-kind')}</div>${field('Note', inp('note', s.form.note, 'maxlength="200" placeholder="e.g. replaces the cancelled lecture on Tuesday"'), 'wide')}` : ''}
           <p class="form-error" role="alert">${esc(s.error || '')}</p>
           <div class="actions left"><button class="btn primary small" data-act="${sub === 'move' ? 'do-move' : 'do-replace'}">${sub === 'move' ? 'Move class' : 'Add replacement'}</button><button class="btn small" data-act="sub-cancel">Cancel</button></div></div>`;
       }
@@ -167,6 +185,8 @@ function TimetableView(root) {
           ${o.link ? `<div>${btnSvg('link')}<button class="btn small primary" data-act="join" data-link="${esc(o.link)}">Join meeting</button></div>` : ''}
         </div>
         ${note ? `<p class="occ-note">${esc(note)}</p>` : ''}
+        ${!form && o.status === 'replacement' ? `<div class="pick-row occ-kind"><span class="lbl">Kind</span>${kindSeg(o.kind, 'rep-kind')}</div>` : ''}
+        ${form ? '' : classNotes(o, s)}
         ${form ? '' : classTasks(c)}
         ${form || `<div class="occ-actions">
           ${o.change && o.status !== 'replacement' && o.status !== 'moved-in' ? `<button class="btn small" data-act="undo">Undo this change</button>` : ''}
@@ -266,17 +286,23 @@ function TimetableView(root) {
       case 'close': closeSheet(); break;
       case 'join': hub.openLink(t.dataset.link); break;
       case 'cancel-occ': setChange(o, { type: 'cancelled', sessionId: o.sessionId, date: o.date }); break;
-      case 'undo': setChange(o, null).then(() => { if (o.status === 'replacement' || o.status === 'moved-in') closeSheet(); }); break;
+      case 'undo': if (o.status === 'replacement' || o.status === 'moved-in') savePlanner({ changes: PL.changes.filter((x) => !(x.type === 'note' && x.ref === o.ref)) }); setChange(o, null).then(() => { if (o.status === 'replacement' || o.status === 'moved-in') closeSheet(); }); break;
       case 'sub-online': s.sub = 'online'; s.form = { link: o.link || '' }; renderSheet(); $('[data-f="link"]', sheet)?.focus(); break;
       case 'sub-move': s.sub = 'move'; s.form = { date: Planner.addDays(o.date, 7), start: o.start, end: o.end, venue: '', link: '' }; renderSheet(); break;
-      case 'sub-replace': s.sub = 'replace'; s.form = { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '' }; renderSheet(); break;
+      case 'sub-replace': s.sub = 'replace'; s.form = { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '', kind: o.kind, section: o.section || '' }; renderSheet(); break;
       case 'sub-cancel': s.sub = null; s.error = ''; renderSheet(); break;
       case 'use-sess': { // copy a regular session's time, venue and link into the form
         const x = o.cls.sessions[Number(t.dataset.i)]; if (!x) break;
-        Object.assign(s.form, { start: x.start, end: x.end, venue: x.venue || '', link: x.link || '' });
+        Object.assign(s.form, { start: x.start, end: x.end, venue: x.venue || '', link: x.link || '', kind: x.kind, section: x.section || '' });
         if (s.sub === 'replace' || s.form.date) { const d = s.form.date || o.date; s.form.date = Planner.addDays(d, (x.day - Planner.weekday(d) + 7) % 7); }
         renderSheet(); break;
       }
+      case 'rep-kind': savePlanner({ changes: PL.changes.map((x) => (x.id === o.change.id ? { ...x, kind: t.dataset.k } : x)) }); renderSheet(); break;
+      case 'form-kind': s.form.kind = t.dataset.k; renderSheet(); break;
+      case 'note-tag': s.noteTag = t.dataset.tag; renderSheet(); $('.on-input', sheet)?.focus(); break;
+      case 'note-for': s.noteFor = t.dataset.v; { const v = $('.on-input', sheet)?.value; renderSheet(); const i = $('.on-input', sheet); if (i) { i.value = v || ''; i.focus(); } } break;
+      case 'note-del': savePlanner({ changes: PL.changes.filter((x) => x.id !== t.dataset.id) }); renderSheet(); break;
+      case 'note-add': addNote(o, s); break;
       case 'task-done': savePlanner({ tasks: PL.tasks.map((k) => (k.id === t.dataset.id ? { ...k, done: true, doneAt: Date.now() } : k)) }); renderSheet(); break;
       case 'do-online':
         if (s.form.link && !isLink(s.form.link)) { s.error = 'Use a full https:// meeting link.'; renderSheet(); break; }
@@ -286,7 +312,7 @@ function TimetableView(root) {
         s.error = !f.date ? 'Pick a date.' : !f.start || !f.end || f.end <= f.start ? 'The end time has to be after the start.' : f.link && !isLink(f.link) ? 'Use a full https:// meeting link.' : '';
         if (s.error) { renderSheet(); break; }
         if (act === 'do-move') { setChange(o, { type: 'moved', sessionId: o.sessionId, date: o.date, toDate: f.date, start: f.start, end: f.end, venue: f.venue, link: f.link }); s.sub = null; } else {
-          savePlanner({ changes: [...PL.changes, { id: newId('x'), type: 'replacement', classId: o.classId, date: f.date, start: f.start, end: f.end, venue: f.venue, link: f.link, note: f.note }] });
+          savePlanner({ changes: [...PL.changes, { id: newId('x'), type: 'replacement', classId: o.classId, date: f.date, start: f.start, end: f.end, venue: f.venue, link: f.link, note: f.note, kind: f.kind || 'lecture', section: f.section || '' }] });
           closeSheet();
         }
         break;
@@ -344,7 +370,16 @@ function TimetableView(root) {
       closeSheet();
     }
   });
+  function addNote(o, s) {
+    const i = $('.on-input', sheet); const text = (i?.value || '').trim(); const tag = s.noteTag || 'quiz';
+    if (!text && (tag === 'other' || tag === 'bring')) { i?.focus(); return; }
+    const at = s.noteFor === 'next' ? nextOcc(o) || o : o;
+    savePlanner({ changes: [...PL.changes, { id: newId('x'), type: 'note', classId: o.classId, ref: at.ref, date: at.date, tag, note: text }] });
+    if (at !== o) globalThis.showNotice?.({ kind: 'success', title: `Added to ${classLabel(o.cls)} on ${fmtDate(at.date, true)}` });
+    s.noteFor = 'this'; renderSheet();
+  }
   root.addEventListener('keydown', (e) => {
+    if (e.target.classList?.contains('on-input') && e.key === 'Enter') { e.preventDefault(); const s = st.sheet; const o = s && findOcc(s.key, s.date); if (o) addNote(o, s); return; }
     const box = e.target.closest?.('.ot-add'); if (!box || e.key !== 'Enter') return;
     e.preventDefault(); const text = box.value.trim(); if (!text) return;
     savePlanner({ tasks: [{ id: newId('t'), text, done: false, due: box.dataset.due || null, classId: box.dataset.taskFor, created: Date.now(), doneAt: null }, ...PL.tasks] });

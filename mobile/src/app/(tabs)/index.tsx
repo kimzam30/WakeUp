@@ -57,6 +57,7 @@ export default function Today() {
           <Fact icon="clock" text={`${next.date === today ? '' : `${fmtDate(next.date)} · `}${fmtTime(next.start)} – ${fmtTime(next.end)}`} />
           {!cover && (KIND[next.kind] || next.section) ? <Fact icon="users" text={[KIND[next.kind], next.section].filter(Boolean).join(' · ')} /> : null}
           <Fact icon={next.mode === 'online' ? 'video' : 'pin'} text={next.mode === 'online' ? 'Online' : next.venue || 'Venue not set'} />
+          {next.notes?.length ? <Fact icon="info" text={Planner.notesLine(next.notes)} warn /> : null}
           {classTasks ? <Pressable accessibilityRole="link" onPress={() => router.navigate('/tasks')}><Fact icon="check" text={`${classTasks} task${classTasks === 1 ? '' : 's'} for this class`} accent /></Pressable> : null}
         </View>
         {STATUS[next.status] ? <Chip label={STATUS[next.status][0]} tone={STATUS[next.status][1]} /> : null}
@@ -137,6 +138,7 @@ export default function Today() {
                   <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
                     <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
                     <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                    {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
                   </View>
                   {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
                 </Row>
@@ -166,9 +168,10 @@ export default function Today() {
   );
 }
 
-function Fact({ icon, text, accent }: { icon: string; text: string; accent?: boolean }) {
+function Fact({ icon, text, accent, warn }: { icon: string; text: string; accent?: boolean; warn?: boolean }) {
   const { c } = useTheme();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(1) + 2 }}><Icon name={icon} size={15} color={accent ? c.accentText : c.muted} /><Txt kind="small" style={{ color: accent ? c.accentText : c.muted }}>{text}</Txt></View>;
+  const fg = warn ? c.warn : accent ? c.accentText : c.muted;
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(1) + 2 }}><Icon name={icon} size={15} color={fg} /><Txt kind="small" style={{ color: fg, fontWeight: warn ? '600' : undefined, flexShrink: 1 }}>{text}</Txt></View>;
 }
 
 // A new version is out: one tap downloads it and opens Android's installer. "Later" hides it until the next version.

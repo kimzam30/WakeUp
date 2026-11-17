@@ -40,11 +40,11 @@
   function occurrencesOn(date, p) {
     const classes = byClass(p); const out = [];
     const dow = weekday(date); const sem = p.semester;
-    const changesFor = (sid, d) => p.changes.filter((x) => x.sessionId === sid && x.date === d);
+    const changesFor = (sid, d) => p.changes.filter((x) => x.sessionId === sid && x.date === d && x.type !== 'note');
     for (const c of p.classes) {
       for (const s of c.sessions) {
         if (s.day === dow && teaching(date, sem)) {
-          const o = { key: `${s.id}@${date}`, date, classId: c.id, cls: c, sessionId: s.id, kind: s.kind, section: s.section, start: s.start, end: s.end, venue: s.venue, mode: s.mode, link: s.link, status: 'normal', live: true, change: null };
+          const o = { key: `${s.id}@${date}`, ref: s.id, date, classId: c.id, cls: c, sessionId: s.id, kind: s.kind, section: s.section, start: s.start, end: s.end, venue: s.venue, mode: s.mode, link: s.link, status: 'normal', live: true, change: null };
           for (const x of changesFor(s.id, date)) {
             o.change = x;
             if (x.type === 'cancelled') { o.status = 'cancelled'; o.live = false; }
@@ -59,15 +59,24 @@
       if (x.type === 'moved' && x.toDate === date) { // a class moved here from another day
         const c = p.classes.find((k) => k.sessions.some((s) => s.id === x.sessionId)); if (!c) continue;
         const s = c.sessions.find((k) => k.id === x.sessionId);
-        out.push({ key: `${x.id}@${date}`, date, classId: c.id, cls: c, sessionId: s.id, kind: s.kind, section: s.section, start: x.start || s.start, end: x.end || s.end, venue: x.venue || s.venue, mode: x.link ? 'online' : s.mode, link: x.link || s.link, status: 'moved-in', fromDate: x.date, live: true, change: x });
+        out.push({ key: `${x.id}@${date}`, ref: x.id, date, classId: c.id, cls: c, sessionId: s.id, kind: s.kind, section: s.section, start: x.start || s.start, end: x.end || s.end, venue: x.venue || s.venue, mode: x.link ? 'online' : s.mode, link: x.link || s.link, status: 'moved-in', fromDate: x.date, live: true, change: x });
       }
       if (x.type === 'replacement' && x.date === date && classes[x.classId]) {
         const c = classes[x.classId];
-        out.push({ key: `${x.id}@${date}`, date, classId: c.id, cls: c, sessionId: null, kind: 'lecture', section: '', start: x.start, end: x.end, venue: x.venue, mode: x.link ? 'online' : 'campus', link: x.link, status: 'replacement', live: true, change: x, note: x.note });
+        out.push({ key: `${x.id}@${date}`, ref: x.id, date, classId: c.id, cls: c, sessionId: null, kind: x.kind || 'lecture', section: x.section || '', start: x.start, end: x.end, venue: x.venue, mode: x.link ? 'online' : 'campus', link: x.link, status: 'replacement', live: true, change: x, note: x.note });
       }
     }
+    // notes for each class meeting (quiz, test, bring…), matched by the meeting's ref and date
+    const notes = p.changes.filter((x) => x.type === 'note' && x.date === date);
+    for (const o of out) o.notes = notes.filter((n) => n.ref === o.ref);
     return out.sort((a, b) => mins(a.start) - mins(b.start) || a.cls.name.localeCompare(b.cls.name));
   }
+
+  // Notes on a class meeting: what's happening in it (a quiz, a test, a consultation…) or what to bring or do.
+  const NOTE_TAGS = { quiz: ['Quiz', 'warn'], test: ['Test', 'bad'], consultation: ['Consultation', 'info'], presentation: ['Presentation', 'info'], bring: ['Bring', 'good'], other: ['Note', ''] };
+  const noteText = (n) => { const t = NOTE_TAGS[n.tag] || NOTE_TAGS.other; return n.note ? (n.tag === 'other' ? n.note : `${t[0]}: ${n.note}`) : t[0]; };
+  // one short line for a class meeting's notes, e.g. "Quiz · Bring: calculator"
+  const notesLine = (list) => (list || []).map(noteText).join(' · ');
 
   // Classes that will take place from `from` over the next `days` days, soonest first.
   function upcoming(p, from = new Date(), days = 7) {
@@ -126,5 +135,5 @@
   // Status chips for one-off changes: [label, tone]. One list for desktop and mobile.
   const STATUS = { cancelled: ['Cancelled', 'bad'], online: ['Online today', 'info'], moved: ['Moved', 'warn'], 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'] };
   const CLASS_COLORS = ['#2f6fde', '#7c5cd6', '#1f9d63', '#d0573a', '#c2410c', '#0f8a8a', '#b4417a', '#b7791f'];
-  return { STATUS, CLASS_COLORS, ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, nextMeeting, venues, clashes, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
+  return { STATUS, CLASS_COLORS, ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, nextMeeting, venues, clashes, NOTE_TAGS, noteText, notesLine, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
 }));

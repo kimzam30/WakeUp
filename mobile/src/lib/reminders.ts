@@ -14,6 +14,7 @@ import type { Planner as PlannerData, Settings } from './types';
 const DAYS = 14;
 const MAX = 60; // Android caps scheduled alarms per app; stay well under it
 const TOPUP = 'wakeup-reminders-topup';
+const EVENING = '20:00'; // heads-up for class notes, the day before
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -54,8 +55,24 @@ function plan(p: PlannerData, s: Settings, now = Date.now()): Plan[] {
       out.push({
         id: `c-${o.cls.id}-${o.date}-${o.start}`, at, channel: 'classes',
         title: `${classLabel(o.cls, s.classLabel)} in ${mins} minutes`,
-        body: [`${fmtTime(o.start)}–${fmtTime(o.end)}`, where].filter(Boolean).join(' · '),
+        body: [`${fmtTime(o.start)}–${fmtTime(o.end)}`, where, Planner.notesLine(o.notes)].filter(Boolean).join(' · '),
         data: { kind: 'class', link: o.mode === 'online' && o.link ? o.link : null, classId: o.cls.id, date: o.date },
+      });
+    }
+  }
+  // the evening before a class with notes (a quiz, a test, something to bring): a heads-up at 8pm, while there's time
+  if (s.notify.timetable !== false) {
+    const today = Planner.ymd(new Date(now));
+    for (let i = 0; i < DAYS; i++) {
+      const day = Planner.addDays(today, i + 1);
+      const withNotes = Planner.occurrencesOn(day, p).filter((o) => o.live && o.notes?.length);
+      const at = Planner.at(Planner.addDays(day, -1), EVENING);
+      if (!withNotes.length || at <= now) continue;
+      out.push({
+        id: `n-${day}`, at, channel: 'classes',
+        title: `Tomorrow: ${withNotes.map((o) => classLabel(o.cls, s.classLabel)).join(', ')}`,
+        body: withNotes.map((o) => `${classLabel(o.cls, s.classLabel)} ${fmtTime(o.start)}: ${Planner.notesLine(o.notes)}`).join('\n'),
+        data: { kind: 'notes', date: day },
       });
     }
   }
