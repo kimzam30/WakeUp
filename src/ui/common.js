@@ -93,6 +93,7 @@ function paint(root) { for (const el of root.querySelectorAll('[data-c]')) el.st
 // ---------- timetable + tasks data, shared by every view in this window ----------
 let PL = { semester: { name: '', start: null, end: null, breaks: [] }, classes: [], changes: [], tasks: [] };
 let WEEK_START = 1;
+let LABEL_MODE = 'code'; // how classes are named: 'code', 'name' or 'both' (Settings → Timetable)
 const plannerListeners = new Set();
 function plannerUpdated(p) { if (p) PL = p; for (const f of plannerListeners) f(); }
 function savePlanner(patch) { // optimistic: draw now, then adopt main's validated copy
@@ -109,7 +110,11 @@ const DAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const fmtDate = (s, long = false) => { const d = Planner.parse(s); return `${(long ? DAYS_LONG : DAYS)[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
 const fmtTime = (hm) => { const [hh, mm] = hm.split(':').map(Number); return `${((hh + 11) % 12) + 1}${mm ? `:${String(mm).padStart(2, '0')}` : ''}${hh < 12 ? 'am' : 'pm'}`; };
-const classLabel = (c) => c.code || c.name;
+// The main label for a class. 'both' shows the code here and the name as classSub() beside or under it.
+const classLabel = (c) => (LABEL_MODE === 'name' ? c.name || c.code : c.code || c.name);
+const classSub = (c) => (LABEL_MODE === 'both' && c.code && c.name && c.name !== c.code ? c.name : '');
+// code and name together where there's room (tooltips, task chips, pickers): "CSP1123 · Mini IT Project"
+const classFull = (c) => (LABEL_MODE === 'both' && c.code && c.name && c.name !== c.code ? `${c.code} · ${c.name}` : classLabel(c));
 // class icons: 16px line icons, drawn in the class colour (keys validated in planner-core)
 const CLASS_ICON = {
   code: 'M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5M9 3 7 13',

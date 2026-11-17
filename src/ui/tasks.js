@@ -1,5 +1,5 @@
 'use strict';
-/* global PL, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, classLabel, classIcon, emptyArt, btnSvg */
+/* global PL, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, classLabel, classFull, classIcon, emptyArt, btnSvg */
 /* eslint-disable no-unused-vars */
 // Tasks: a fast local to-do list. Each task can have a due date and belong to a class.
 
@@ -76,7 +76,7 @@ function TasksView(root) {
     return `<li class="task${t.done ? ' done' : ''}" data-id="${esc(t.id)}">
       <button class="check" data-act="toggle" aria-pressed="${t.done}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${btnSvg('check')}</button>
       <div class="t-main">${text}<div class="t-meta">
-        ${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classLabel(c))}</span>` : ''}
+        ${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classFull(c))}</span>` : ''}
         <label class="due-chip${late ? ' late' : ''}"><span>${t.due ? esc(dueLabel(t.due, today)) : 'Add date'}</span><input type="date" name="due" value="${esc(t.due || '')}" aria-label="Due date"></label>
       </div></div>
       <button class="hbtn del" data-act="del" aria-label="Delete task" title="Delete">${btnSvg('trash')}</button></li>`;
@@ -99,7 +99,7 @@ function TasksView(root) {
     $('.cd-lbl', form).textContent = custom ? fmtDate(st.due) : '';
     const sel = $('[name="cls"]', form);
     if (st.classId && !PL.classes.some((c) => c.id === st.classId)) st.classId = '';
-    sel.innerHTML = `<option value="">No class</option>${PL.classes.map((c) => `<option value="${esc(c.id)}"${c.id === st.classId ? ' selected' : ''}>${esc(classLabel(c))}</option>`).join('')}`;
+    sel.innerHTML = `<option value="">No class</option>${PL.classes.map((c) => `<option value="${esc(c.id)}"${c.id === st.classId ? ' selected' : ''}>${esc(classFull(c))}</option>`).join('')}`;
     sel.hidden = !PL.classes.length;
     // groups
     if (!open && !groups.done.length) {

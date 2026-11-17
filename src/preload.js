@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('hub', {
   onFound: listen('found'),
   onPlanner: listen('planner'),
   onNotice: listen('notice'),
+  onSync: listen('sync'),
+  sync: (action) => ipcRenderer.invoke('sync', action),
   commit: (layout) => ipcRenderer.send('commit', layout),
   bounds: (b) => ipcRenderer.send('bounds', b),
   cover: (on) => ipcRenderer.send('cover', on),
@@ -34,6 +36,12 @@ contextBridge.exposeInMainWorld('hub', {
   exportPlanner: () => ipcRenderer.invoke('planner-export'),
   importPlanner: () => ipcRenderer.invoke('planner-import'),
   openLink: (url) => ipcRenderer.send('open-link', url),
+  // link windows: their bar, dragging them back in, and docking
+  linkInit: () => ipcRenderer.invoke('link-init'),
+  onLink: listen('link'),
+  linkAction: (action) => ipcRenderer.send('link-action', action),
+  linkDrag: (on) => ipcRenderer.send('link-drag', !!on),
+  dockLink: (token) => ipcRenderer.invoke('dock-link', token),
   // screenshots
   capture: (kind, id, rect) => ipcRenderer.invoke('capture', { kind, id, rect }),
   saveShot: (dataUrl) => ipcRenderer.invoke('save-shot', dataUrl),

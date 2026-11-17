@@ -1,6 +1,6 @@
 {
   "name": "wakeup",
-  "version": "2.2.0",
+  "version": "2.4.0",
   "description": "Ebwise, Outlook, Teams, your timetable and tasks in one calm window",
   "main": "src/main.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "icons": "python3 scripts/make-icons.py",
     "dist": "python3 scripts/make-icons.py && electron-builder --linux dir",
     "dist:appimage": "python3 scripts/make-icons.py && electron-builder --linux AppImage",
-    "install-app": "bash scripts/install.sh"
+    "install-app": "bash scripts/install.sh",
+    "test": "node --test test/*.test.js"
   },
   "author": "kimzam",
   "license": "UNLICENSED",
@@ -52,5 +53,8 @@
     ],
     "compression": "maximum"
   },
-  "desktopName": "wakeup.desktop"
+  "desktopName": "wakeup.desktop",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0"
+  }
 }

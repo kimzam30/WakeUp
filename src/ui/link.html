@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'">
+  <title>WakeUp</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="pop linkwin">
+  <div id="linkbar">
+    <button class="hbtn" data-a="back" title="Back" aria-label="Back" disabled></button>
+    <button class="hbtn" data-a="forward" title="Forward" aria-label="Forward" disabled></button>
+    <button class="hbtn" data-a="reload" title="Reload (Ctrl+R)" aria-label="Reload"></button>
+    <div class="lb-grip" draggable="true" title="Drag into the WakeUp window to put this page beside your apps">
+      <span class="lb-dots" aria-hidden="true"></span>
+      <span class="lb-text"><b class="lb-title">Loading…</b><small class="lb-host"></small></span>
+    </div>
+    <button class="hbtn" data-a="external" title="Open in your browser" aria-label="Open in your browser"></button>
+    <button class="btn small" data-a="dock" title="Move this page into WakeUp (Ctrl+Shift+D)"></button>
+  </div>
+  <script src="common.js"></script>
+  <script src="link.js"></script>
+</body>
+</html>

@@ -1,8 +1,10 @@
 'use strict';
 const {
   app, BrowserWindow, WebContentsView, ipcMain, session, shell, Tray, Menu, clipboard, ClipboardItem, dialog,
-  nativeImage, nativeTheme, desktopCapturer, screen, Notification,
+  nativeImage, nativeTheme, desktopCapturer, screen, Notification, safeStorage, net, powerMonitor,
 } = require('electron');
+const { createSync } = require('./sync.js');
+let sync = null; // cloud sync, started once the window is up
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -127,7 +129,9 @@ function rebuildServices(s) {
   // a file pane browses like the app it came from (same sign-in, same sites), but never leaves its document
   const files = FILES.map((f) => {
     const from = all.find((x) => x.id === f.from);
-    return { id: f.id, name: f.name, kind: 'file', url: isHttp(f.src) ? f.src : pathToFileURL(f.src).href, partition: f.partition, color: '#6b6a67', local: !isHttp(f.src), from: f.from || null, hosts: from?.hosts };
+    // a page docked from a link window may also browse its own site
+    const own = f.link && isHttp(f.src) ? [new URL(f.src).hostname.replace(/^www\./, '')] : [];
+    return { id: f.id, name: f.name, kind: 'file', url: isHttp(f.src) ? f.src : pathToFileURL(f.src).href, partition: f.partition, color: '#6b6a67', local: !isHttp(f.src), from: f.from || null, link: !!f.link, hosts: [...(from?.hosts || []), ...own] };
   });
   SERVICES = [...all
     .map((x) => ({ ...x, kind: x.kind || 'web', hidden: s.hidden.includes(x.id), keepAlive: s.keepAlive[x.id] ?? !!x.keepAlive }))
@@ -145,7 +149,7 @@ const settingsDefaults = () => ({
   downloadDir: '', askDownload: false, openDownload: false, notifyDownload: true,
   externalLinks: 'browser', docLinks: 'beside',
   theme: 'system', zoom: 100, compact: false, labels: true, sideWidth: 0,
-  nickname: '', reminders: 10, weekStart: 1,
+  nickname: '', reminders: 10, weekStart: 1, classLabel: 'code', taskReminder: '08:00',
   screenshotDir: '', screenshotCopy: true,
   customApps: [],
 });
@@ -201,60 +205,16 @@ function cleanSettings(raw, legacy = {}) {
     nickname: text(r.nickname, 30),
     reminders: oneOf(Number(r.reminders), [0, 5, 10, 15], d.reminders),
     weekStart: oneOf(Number(r.weekStart), [0, 1], d.weekStart),
+    classLabel: oneOf(r.classLabel, ['code', 'name', 'both'], d.classLabel),
+    taskReminder: r.taskReminder === '' || r.taskReminder === null ? '' : (/^([01]\d|2[0-3]):[0-5]\d$/.test(r.taskReminder) ? r.taskReminder : d.taskReminder), // phone/tablet only; '' = off
     screenshotDir: path.isAbsolute(text(r.screenshotDir, 1000)) ? text(r.screenshotDir, 1000) : '',
     screenshotCopy: bool(r.screenshotCopy, d.screenshotCopy),
     customApps,
   };
 }
 
-// ---- timetable + tasks (validated like settings: whatever is on disk or comes from the UI)
-const YMD = /^\d{4}-\d{2}-\d{2}$/; const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const ymd = (v) => (typeof v === 'string' && YMD.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
-const hm = (v) => (typeof v === 'string' && HM.test(v) ? v : null);
-const httpsLink = (v) => { const u = safeUrl(text(v, 2000)); return u && u.protocol === 'https:' ? u.href : ''; };
-const ident = (v, prefix) => (typeof v === 'string' && /^[a-z0-9-]{1,40}$/.test(v) ? v : `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
-const emptyPlanner = () => ({ semester: { name: '', start: null, end: null, breaks: [] }, classes: [], changes: [], tasks: [] });
-function cleanPlanner(raw) {
-  const r = isObj(raw) ? raw : {};
-  const sem = isObj(r.semester) ? r.semester : {};
-  let start = ymd(sem.start); let end = ymd(sem.end);
-  if (start && end && end < start) [start, end] = [end, start];
-  const semester = {
-    name: text(sem.name, 60), start, end,
-    breaks: (Array.isArray(sem.breaks) ? sem.breaks : []).slice(0, 10).filter(isObj)
-      .map((b) => ({ start: ymd(b.start), end: ymd(b.end) || ymd(b.start), label: text(b.label, 40) || 'Break' }))
-      .filter((b) => b.start && b.end >= b.start),
-  };
-  const seen = new Set(); const sessionIds = new Set();
-  const classes = (Array.isArray(r.classes) ? r.classes : []).slice(0, 40).filter(isObj).map((c) => {
-    let id = ident(c.id, 'k'); if (seen.has(id)) id = ident('', 'k'); seen.add(id);
-    const sessions = (Array.isArray(c.sessions) ? c.sessions : []).slice(0, 12).filter(isObj).map((x) => {
-      let sid = ident(x.id, 's'); if (sessionIds.has(sid)) sid = ident('', 's'); sessionIds.add(sid);
-      return {
-        id: sid, kind: oneOf(x.kind, ['lecture', 'tutorial', 'lab'], 'lecture'), section: text(x.section, 20),
-        day: Math.round(num(x.day, 0, 6, 1)), start: hm(x.start) || '09:00', end: hm(x.end) || '10:00',
-        venue: text(x.venue, 80), mode: oneOf(x.mode, ['campus', 'online'], 'campus'), link: httpsLink(x.link),
-      };
-    }).filter((x) => x.end > x.start);
-    return {
-      id, code: text(c.code, 20), name: text(c.name, 80) || text(c.code, 20) || 'Class',
-      icon: Planner.classIconKey(c.icon), color: /^#[0-9a-f]{6}$/i.test(c.color) ? Planner.classColor(c.color) : '#2f6fde', sessions,
-    };
-  });
-  const classIds = new Set(classes.map((c) => c.id));
-  const changes = (Array.isArray(r.changes) ? r.changes : []).slice(-500).filter(isObj).map((x) => ({
-    id: ident(x.id, 'x'), type: oneOf(x.type, ['cancelled', 'online', 'moved', 'replacement'], null),
-    sessionId: sessionIds.has(x.sessionId) ? x.sessionId : null, classId: classIds.has(x.classId) ? x.classId : null,
-    date: ymd(x.date), toDate: ymd(x.toDate), start: hm(x.start), end: hm(x.end),
-    venue: text(x.venue, 80), link: httpsLink(x.link), note: text(x.note, 200),
-  })).filter((x) => x.type && x.date && (x.type === 'replacement' ? x.classId && x.start && x.end > x.start : x.sessionId)
-    && (x.type !== 'moved' || x.toDate) && (!x.start || !x.end || x.end > x.start));
-  const tasks = (Array.isArray(r.tasks) ? r.tasks : []).slice(0, 1000).filter(isObj).map((t) => ({
-    id: ident(t.id, 't'), text: text(t.text, 300), done: bool(t.done, false), due: ymd(t.due),
-    classId: classIds.has(t.classId) ? t.classId : null, created: num(t.created, 0, 1e14, Date.now()), doneAt: t.done ? num(t.doneAt, 0, 1e14, Date.now()) : null,
-  })).filter((t) => t.text);
-  return { semester, classes, changes, tasks };
-}
+// ---- timetable + tasks: validated by the same code the Android app uses
+const { cleanPlanner, emptyPlanner } = require('./shared/planner-schema.js');
 
 // ---- files shown inside WakeUp (PDFs, images, screenshots)
 const VIEWABLE = /\.(pdf|png|jpe?g|gif|webp|bmp)$/i; // no SVG: it can carry scripts
@@ -262,7 +222,7 @@ const cleanFiles = (list) => (Array.isArray(list) ? list : []).filter(isObj).sli
   const src = typeof f.src === 'string' ? f.src : '';
   const ok = isHttp(src) ? safeUrl(src)?.protocol === 'https:' : path.isAbsolute(src) && VIEWABLE.test(src);
   if (!ok || typeof f.id !== 'string' || !/^f-[a-z0-9]{1,20}$/.test(f.id)) return null;
-  return { id: f.id, name: text(f.name, 200) || 'Document', src, partition: typeof f.partition === 'string' && /^(persist:[a-z0-9-]{1,48}|files)$/.test(f.partition) ? f.partition : 'files', from: typeof f.from === 'string' ? f.from : null, ts: num(f.ts, 0, 1e14, Date.now()) };
+  return { id: f.id, name: text(f.name, 200) || 'Document', src, partition: typeof f.partition === 'string' && /^(persist:[a-z0-9-]{1,48}|files)$/.test(f.partition) ? f.partition : 'files', from: typeof f.from === 'string' ? f.from : null, link: f.link === true, ts: num(f.ts, 0, 1e14, Date.now()) };
 }).filter(Boolean);
 const cleanShots = (list) => (Array.isArray(list) ? list : []).filter((x) => isObj(x) && typeof x.path === 'string' && path.isAbsolute(x.path) && /\.png$/i.test(x.path))
   .slice(0, 10).map((x) => ({ id: typeof x.id === 'string' ? x.id.slice(0, 30) : `s${Math.random().toString(36).slice(2, 8)}`, path: x.path, name: path.basename(x.path), ts: num(x.ts, 0, 1e14, 0) }));
@@ -558,7 +518,7 @@ function onDownload(item, wc, partition) {
   const filePane = fromId && byId[fromId]?.kind === 'file' && !byId[fromId].local ? fromId : null;
   downloads.unshift(d); dlItems.set(id, item);
   // A link window that only existed to start this download stays blank: close it.
-  const w = wc && !wc.isDestroyed() ? BrowserWindow.fromWebContents(wc) : null;
+  const w = wc && !wc.isDestroyed() ? linkOwner.get(wc) || BrowserWindow.fromWebContents(wc) : null;
   if (w && linkWindows.has(w) && !linkWindows.get(w).loaded) setImmediate(() => { if (!w.isDestroyed()) w.close(); });
   let lastSent = 0;
   const push = (force) => { const now = Date.now(); if (force || now - lastSent > 250) { lastSent = now; send('download', publicDl(d)); } };
@@ -647,14 +607,14 @@ function openDoc(svc, url) { // an Ebwise course file: beside the app, full scre
 // ---- documents and images shown in a pane (Chromium's PDF viewer), from Ebwise links, Downloads or screenshots
 let fileSeq = 0;
 function filesChanged() { state.files = FILES; rebuildServices(state.settings); saveState(); sendSettings(); }
-function addFile({ src, name, partition, from }) {
+function addFile({ src, name, partition, from, link = false }) {
   const id = `f-${Date.now().toString(36)}${(fileSeq++).toString(36)}`;
   if (FILES.length >= 6) { // make room: close the oldest document that isn't on screen
     const onScreen = new Set([...leaves(state.tile), ...state.free.map((p) => p.id), ...state.popped]);
     const old = FILES.find((f) => !onScreen.has(f.id)) || FILES[0];
     send('cmd', { name: 'close', arg: old.id });
   }
-  FILES.push({ id, name: text(name, 200) || 'Document', src, partition, from: from || null, ts: Date.now() });
+  FILES.push({ id, name: text(name, 200) || 'Document', src, partition, from: from || null, link: !!link, ts: Date.now() });
   filesChanged();
   return id;
 }
@@ -678,27 +638,100 @@ function renameFile(id, name) {
   f.name = n; filesChanged();
 }
 const linkWindowSize = () => fitOnScreen(state.docBounds || { width: 1100, height: 820 });
-const linkPrefs = (svc) => ({ partition: svc.partition, sandbox: true, contextIsolation: true, spellcheck: true });
+// plugins: a linked page can open a PDF, and it may later move into a pane (which shows PDFs)
+const linkPrefs = (svc) => ({ partition: svc.partition, sandbox: true, contextIsolation: true, spellcheck: true, plugins: true });
 const linkWindows = new WeakMap(); // window -> { loaded }: a window that never showed a page only existed for a download
-function trackLinkWindow(w, svc, rememberSize = true) {
+const linkOwner = new WeakMap(); // page webContents -> the link window that holds it
+function trackLinkWindow(w, svc, rememberSize = true, wc = w.webContents) {
   const info = { loaded: false };
-  linkWindows.set(w, info);
+  linkWindows.set(w, info); linkOwner.set(wc, w);
   w.setMenuBarVisibility(false);
-  const wc = w.webContents;
   wc.on('did-navigate', (_e, url) => { if (isHttp(url)) info.loaded = true; });
   const remember = () => { if (!w.isMinimized() && !w.isMaximized()) { state.docBounds = w.getBounds(); saveState(); } };
   if (rememberSize) { w.on('resize', remember); w.on('move', remember); } // not for small sign-in popups
   guard(wc, svc, { linkWindow: true });
 }
+
+// ---- link windows: the page sits under a slim WakeUp bar (link.html) in its own view,
+// so it can move into the main window (Dock button, or drag the bar's grip) without reloading.
+const LINKBAR = 40;
+const linkHosts = new Map(); // token -> { win, view, svc, docked }
+let linkSeq = 0;
+const linkOf = (sender) => { for (const [token, l] of linkHosts) if (l.win.webContents === sender) return [token, l]; return [null, null]; };
+function fitLink(l) {
+  if (l.win.isDestroyed()) return;
+  const [cw, ch] = l.win.getContentSize();
+  l.view.setBounds({ x: 0, y: LINKBAR, width: cw, height: Math.max(0, ch - LINKBAR) });
+}
+function linkInfo(token) {
+  const l = linkHosts.get(token); const wc = l?.view.webContents;
+  if (!wc || wc.isDestroyed()) return null;
+  return { token, app: l.svc.name, color: l.svc.color, title: wc.getTitle() || l.svc.name, url: wc.getURL(), back: wc.navigationHistory.canGoBack(), forward: wc.navigationHistory.canGoForward(), loading: wc.isLoading() };
+}
+function sendLink(token) {
+  const l = linkHosts.get(token); const info = linkInfo(token);
+  if (l && info && !l.win.isDestroyed()) l.win.webContents.send('link', info);
+}
+// a page-opened popup holds its page directly, so moving it in reloads the page in a pane (same sign-in)
+function dockPopup(w, wc, svc) {
+  const url = wc.getURL(); if (safeUrl(url)?.protocol !== 'https:') return;
+  showFile(addFile({ src: url, name: wc.getTitle() || svc.name, partition: svc.partition, from: svc.id, link: true }), 'beside');
+  w.close();
+}
 function openLinkWindow(url, svc) {
   configureSession(svc.partition);
   const w = new BrowserWindow({
     ...linkWindowSize(), minWidth: 360, minHeight: 300, title: svc.name, icon: ICON,
-    autoHideMenuBar: true, backgroundColor: BG(), webPreferences: linkPrefs(svc),
+    autoHideMenuBar: true, backgroundColor: BG(),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
-  trackLinkWindow(w, svc);
-  w.loadURL(url, { userAgent: UA }).catch(() => { /* Chromium shows its error page */ });
+  const view = new WebContentsView({ webPreferences: linkPrefs(svc) });
+  view.setBackgroundColor(BG());
+  w.contentView.addChildView(view);
+  const token = `l${++linkSeq}`;
+  const l = { win: w, view, svc, docked: false };
+  linkHosts.set(token, l);
+  const wc = view.webContents;
+  trackLinkWindow(w, svc, true, wc);
+  for (const ev of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading']) wc.on(ev, () => sendLink(token));
+  wc.on('page-title-updated', (_e, title) => { if (!w.isDestroyed()) w.setTitle(`${title} · ${APP}`); sendLink(token); });
+  wc.on('before-input-event', (e, input) => { // Ctrl+W closes this window, Ctrl+R reloads, Ctrl+Shift+D docks it
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+    const k = input.key.toLowerCase();
+    if (w.isDestroyed()) return; // the page has moved into WakeUp; its pane handles keys now
+    if (k === 'w' && !input.shift) { e.preventDefault(); w.close(); } else if (k === 'r' && !input.shift) { e.preventDefault(); wc.reload(); } else if (k === 'd' && input.shift) { e.preventDefault(); dockLink(token); }
+  });
+  w.webContents.on('did-finish-load', () => sendLink(token));
+  w.on('resize', () => fitLink(l));
+  w.on('closed', () => {
+    linkHosts.delete(token);
+    if (!l.docked && !wc.isDestroyed()) wc.close();
+    // closed mid-drag (or its bar crashed): tell the main window to show its apps again
+    if (win && !win.isDestroyed()) win.webContents.send('cmd', { name: 'link-drag', arg: null });
+  });
+  w.loadFile(UI('link.html'));
+  fitLink(l);
+  wc.loadURL(url, { userAgent: UA }).catch(() => { /* Chromium shows its error page */ });
 }
+// Move a link window's page into the main window as a document pane. `how` is 'beside' (Dock button) or 'none'
+// (a drop: the shell places it where it was dropped). The page keeps running: no reload, no new sign-in.
+function dockLink(token, how = 'beside') {
+  const l = linkHosts.get(token); const wc = l?.view.webContents;
+  if (!l || !wc || wc.isDestroyed()) return null;
+  const url = wc.getURL();
+  if (!isHttp(url) || safeUrl(url)?.protocol !== 'https:') { openOut(url); return null; }
+  const id = addFile({ src: url, name: wc.getTitle() || l.svc.name, partition: l.svc.partition, from: l.svc.id, link: true });
+  adopted[id] = l.view;
+  linkOwner.delete(wc); // it belongs to a pane now (menus and keys look the owner up)
+  // the shell normally shows the new pane within a moment; if it never does, don't leave the page running unseen
+  setTimeout(() => { const v = adopted[id]; if (v) { delete adopted[id]; if (!v.webContents.isDestroyed()) v.webContents.close(); log('docked page never shown, closed', id); } }, 15e3);
+  l.docked = true;
+  l.win.contentView.removeChildView(l.view);
+  l.win.destroy();
+  if (how !== 'none') showFile(id, how); else showWindow();
+  return id;
+}
+
 // window.open / target=_blank from a pane or one of its windows
 function routeOpen(svc, { url, disposition }) {
   const deny = { action: 'deny' };
@@ -711,8 +744,8 @@ function routeOpen(svc, { url, disposition }) {
   if (url === 'about:blank' || url === '' || (disposition === 'new-window' && (svc.custom || isInternal(url, svc)))) return allow();
   if (isInternal(url, svc)) {
     if (state.settings.docLinks === 'browser') { openOut(url); return deny; }
-    const { width, height } = linkWindowSize();
-    return allow({ width, height });
+    openLinkWindow(url, svc); // a WakeUp window with its bar, so it can dock back in
+    return deny;
   }
   followLink(svc, url);
   return deny;
@@ -772,10 +805,16 @@ function contextMenu(wc, p, svc) {
       { label: 'Select all', enabled: f.canSelectAll, click: () => wc.selectAll() },
     );
   } else if (p.selectionText.trim()) items.push({ label: 'Copy', click: () => wc.copy() });
+  const owner = linkOwner.get(wc);
+  if (owner && !owner.isDestroyed() && isHttp(wc.getURL())) {
+    sep();
+    const token = [...linkHosts].find(([, l]) => l.win === owner)?.[0];
+    items.push({ label: `Move into ${APP}`, click: () => (token ? dockLink(token) : dockPopup(owner, wc, svc)) });
+  }
   while (items.at(-1)?.type === 'separator') items.pop();
   if (!items.length) return;
   const id = paneIdOf(wc);
-  const w = BrowserWindow.fromWebContents(wc) || (id && panes.get(id)?.popWin) || win;
+  const w = linkOwner.get(wc) || BrowserWindow.fromWebContents(wc) || (id && panes.get(id)?.popWin) || win;
   Menu.buildFromTemplate(items).popup({ window: w });
 }
 
@@ -821,11 +860,16 @@ async function fetchIcon(id, url, ses) { // custom apps: keep the site's favicon
   } catch (e) { log('could not fetch icon for', id, e.message); }
 }
 
+const adopted = {}; // file id -> a link window's view that is moving into that pane
 function createView(id) {
   const p = pane(id);
   const svc = byId[id];
   configureSession(svc.partition);
-  const view = new WebContentsView({
+  const keep = adopted[id]; delete adopted[id];
+  if (keep) { // drop the link window's listeners; the pane wires its own below
+    for (const ev of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated', 'before-input-event', 'did-create-window', 'context-menu']) keep.webContents.removeAllListeners(ev);
+  }
+  const view = keep && !keep.webContents.isDestroyed() ? keep : new WebContentsView({
     webPreferences: { partition: svc.partition, sandbox: true, contextIsolation: true, spellcheck: true, plugins: svc.kind === 'file' },
   });
   view.setBorderRadius?.(p.popWin ? 0 : RADIUS);
@@ -870,6 +914,11 @@ function createView(id) {
   wc.on('before-input-event', (e, input) => { if (handleShortcut(input, id)) e.preventDefault(); });
   wc.on('focus', () => { if (!p.popWin) send('focused', id); });
   p.view = view;
+  if (view === keep) {
+    p.url = wc.getURL(); setStatus(id, wc.isLoading() ? 'loading' : 'ready');
+    if (state.settings.zoom !== 100) wc.setZoomFactor(state.settings.zoom / 100);
+    return view;
+  }
   setStatus(id, 'loading');
   const url = pendingUrl[id] || p.url || svc.url; delete pendingUrl[id];
   wc.loadURL(url, { userAgent: UA }).catch(() => { /* reported via did-fail-load */ });
@@ -1110,7 +1159,7 @@ const settingsPayload = () => ({
   defaultDownloadDir: app.getPath('downloads'), defaultShotDir: path.join(app.getPath('pictures'), 'Screenshots'),
   layout: { mode: state.mode, tile: state.tile, free: state.free, alive: state.alive, popped: state.popped, focused: state.focused, zoomed: state.zoomed, splits: state.splits },
 });
-function applySettings(patch) {
+function applySettings(patch, { fromCloud = false } = {}) {
   if (!isObj(patch)) return settingsPayload();
   if (typeof patch.autostart === 'boolean') setAutostart(patch.autostart);
   const prev = state.settings;
@@ -1131,6 +1180,7 @@ function applySettings(patch) {
   if (next.zoom !== prev.zoom) for (const p of panes.values()) if (p.view && !p.view.webContents.isDestroyed()) p.view.webContents.setZoomFactor(next.zoom / 100);
   writeDesktopEntry();
   buildTray(); updateBadge(); saveState(); scheduleReminder();
+  if (!fromCloud) sync?.settingsChanged(prev, next);
   return sendSettings();
 }
 
@@ -1233,6 +1283,24 @@ ipcMain.on('find-bar', (_e, { id, open } = {}) => {
   if (p.popWin) { p.findOpen = !!open; fitPop(id); }
 });
 ipcMain.handle('settings-set', (_e, patch) => applySettings(patch));
+// the bar on top of a link window
+ipcMain.handle('link-init', (e) => { const [token] = linkOf(e.sender); return token ? linkInfo(token) : null; });
+ipcMain.on('link-action', (e, action) => {
+  const [token, l] = linkOf(e.sender); if (!l) return;
+  const wc = l.view.webContents; if (wc.isDestroyed()) return;
+  if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+  if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+  if (action === 'reload') wc.reload();
+  if (action === 'external') openOut(wc.getURL());
+  if (action === 'dock') dockLink(token);
+});
+// dragging a link window's grip: the main window hides its web views so the drop reaches its layout
+ipcMain.on('link-drag', (e, on) => {
+  const [token, l] = linkOf(e.sender); if (!l || !win || win.isDestroyed()) return;
+  win.webContents.send('cmd', { name: 'link-drag', arg: on ? { token, name: linkInfo(token)?.title || l.svc.name, app: l.svc.name, color: l.svc.color } : null });
+});
+// the main window got the drop: dock it and let the shell place it
+ipcMain.handle('dock-link', (e, token) => (win && e.sender === win.webContents && typeof token === 'string' ? dockLink(token, 'none') : null));
 ipcMain.handle('pick-folder', async (_e, what) => {
   const shots = what === 'screenshots';
   const r = await dialog.showOpenDialog(win, { title: shots ? 'Save screenshots to' : 'Save downloads to', defaultPath: shots ? shotDir() : downloadDir(), properties: ['openDirectory', 'createDirectory'] });
@@ -1252,14 +1320,47 @@ ipcMain.on('app', (_e, action) => {
 
 // ---- timetable + tasks
 const shellWindows = () => [win, ...[...panes.values()].map((p) => p.popWin)].filter((w) => w && !w.isDestroyed() && w.webContents.getURL().startsWith('file:'));
-function setPlanner(patch) {
+function setPlanner(patch, { fromCloud = false } = {}) {
   const pick = Object.fromEntries(['semester', 'classes', 'changes', 'tasks'].filter((k) => isObj(patch) && k in patch).map((k) => [k, patch[k]]));
+  const prev = state.planner;
   state.planner = cleanPlanner({ ...state.planner, ...pick });
+  if (!fromCloud) sync?.plannerChanged(prev, state.planner);
   saveState(); scheduleReminder();
   for (const w of shellWindows()) w.webContents.send('planner', state.planner);
   return state.planner;
 }
 ipcMain.handle('planner-set', (_e, patch) => setPlanner(patch));
+
+// ---- cloud sync (Settings → General → Sync): Google sign-in, then timetable, tasks and settings on every device
+const sendSync = (st) => { for (const w of shellWindows()) w.webContents.send('sync', st); };
+function startSync() {
+  sync = createSync({
+    app, shell, safeStorage, net, powerMonitor, state, saveState, log, cleanPlanner,
+    setPlanner: (planner) => setPlanner(planner, { fromCloud: true }),
+    applySettings: (patch) => applySettings(patch, { fromCloud: true }),
+    isVisible: () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
+    confirmSwitch: async ({ email }) => {
+      const r = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+        type: 'question', title: 'Another account', buttons: ['Start fresh', 'Keep and merge'], defaultId: 0, cancelId: 0,
+        message: `This computer has a timetable from another account.`,
+        detail: `Start fresh to see only ${email}'s timetable and tasks (this computer's copy is removed; the other account keeps its own in the cloud). Keep and merge copies this computer's classes and tasks into ${email}.`,
+      });
+      return r.response === 1 ? 'merge' : 'fresh';
+    },
+    onStatus: sendSync,
+  });
+  sync.start().catch((e) => log('sync start failed', e.message));
+  // coming back to the window: catch up on anything that changed elsewhere (no polling while it's hidden)
+  if (win && !win.isDestroyed()) for (const ev of ['show', 'restore']) win.on(ev, () => sync?.onShow());
+}
+ipcMain.handle('sync', async (_e, action) => {
+  if (!sync) return null;
+  if (action === 'sign-in') return sync.signIn();
+  if (action === 'sign-out') return sync.signOut();
+  if (action === 'cancel') return sync.cancelSignIn();
+  if (action === 'now') { await sync.syncNow(); return sync.status(); }
+  return sync.status();
+});
 ipcMain.handle('planner-export', async (e) => {
   const w = BrowserWindow.fromWebContents(e.sender) || win;
   const r = await dialog.showSaveDialog(w, { title: 'Export timetable and tasks', defaultPath: path.join(app.getPath('documents'), 'WakeUp timetable.json'), filters: [{ name: 'WakeUp timetable', extensions: ['json'] }] });
@@ -1284,9 +1385,10 @@ function openMeeting(url) { if (!isHttp(url)) return; if (isTeamsLink(url) && op
 ipcMain.on('open-link', (_e, url) => { if (typeof url === 'string') openMeeting(url); });
 
 // ---- class reminders: one timer, re-armed for the next class (and at least every 30 min, so sleep/suspend can't skew it)
-let reminderTimer = null; const reminded = new Set();
+let reminderTimer = null; const reminded = new Set(); let remindedDay = '';
 function scheduleReminder() {
   clearTimeout(reminderTimer);
+  const day = Planner.today(); if (day !== remindedDay) { remindedDay = day; reminded.clear(); } // only today's matter
   const lead = state.settings.reminders * 60e3;
   if (!lead || state.settings.notify.timetable === false) return;
   const now = Date.now();
@@ -1297,6 +1399,13 @@ function scheduleReminder() {
     scheduleReminder();
   }, Math.min(wait, 30 * 60e3));
 }
+// the class name as the user chose to see it (Settings → Timetable → Show classes as)
+function labelFor(c) {
+  const m = state.settings.classLabel;
+  if (m === 'name') return c.name || c.code;
+  if (m === 'both' && c.code && c.name && c.name !== c.code) return `${c.code} · ${c.name}`;
+  return c.code || c.name;
+}
 function remind(o) {
   reminded.add(o.key);
   if (!Notification.isSupported()) return;
@@ -1304,7 +1413,7 @@ function remind(o) {
   const who = state.settings.nickname ? `${state.settings.nickname}, ` : '';
   const kind = { lecture: 'Lecture', tutorial: 'Tutorial', lab: 'Lab' }[o.kind];
   const n = new Notification({
-    title: `${o.cls.code || o.cls.name} ${kind} in ${mins} min`,
+    title: `${labelFor(o.cls)} ${kind} in ${mins} min`,
     body: `${who}${o.mode === 'online' ? 'it’s online' : `it’s at ${o.venue || 'the usual place'}`}${o.status === 'replacement' ? ' (replacement class)' : o.status === 'moved-in' ? ' (moved here)' : ''}.${o.mode === 'online' && o.link ? ' Click to join.' : ''}`,
     icon: ICON,
   });
@@ -1406,6 +1515,7 @@ app.whenReady().then(() => {
     buildTray();
     writeDesktopEntry();
     scheduleReminder();
+    startSync();
   });
   nativeTheme.on('updated', () => {
     win?.setBackgroundColor(BG());

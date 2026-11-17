@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, Planner, PL:writable, WEEK_START:writable, plannerListeners, plannerUpdated, taskBadge, ICONS, BTN, S16, MARK, MARK_VB, svg, btnSvg, esc, glyph, $, $$, h, clamp, uniq, sum, store, paint,
+/* global hub, Planner, PL:writable, WEEK_START:writable, LABEL_MODE:writable, plannerListeners, plannerUpdated, taskBadge, ICONS, BTN, S16, MARK, MARK_VB, svg, btnSvg, esc, glyph, $, $$, h, clamp, uniq, sum, store, paint,
    FindBar, TasksView, TimetableView, renderToday, openSwitcher, openHelp, splitTitle,
    toggleSettings, renderSettings, toggleDownloads, renderDownloads, renderDlButton, onDownload, onDownloadsClick */
 // WakeUp shell UI. The layout lives here; main validates/persists it and places the native web views
@@ -931,6 +931,40 @@ hub.onCmd(({ name, arg }) => {
   else if (name === 'help') openHelp();
   else if (name === 'shot') { if (arg === 'area') pickArea(); else takeShot(arg === 'app' ? 'app' : 'all'); }
   else if (name === 'open-file') openFileCmd(arg);
+  else if (name === 'link-drag') linkDragging(arg);
+});
+
+// ---------- a link window's grip dragged onto this window: drop it anywhere a split can go ----------
+let linkDrag = null; // { token, name, app, color } while one is being dragged
+let linkDragTimer = null;
+function linkDragging(arg) {
+  linkDrag = arg && typeof arg.token === 'string' ? arg : null;
+  // a drag that never ends (window closed, drop lost) mustn't leave every app hidden
+  clearTimeout(linkDragTimer); if (linkDrag) linkDragTimer = setTimeout(() => linkDragging(null), 15e3);
+  dragging = !!linkDrag; // hides the web views (setCover) so the drop reaches this page
+  document.body.classList.toggle('dragging', dragging);
+  if (!linkDrag) $('#dropzone').hidden = true;
+  else if (settingsOpen) toggleSettings(false);
+  render();
+}
+const linkHit = (e) => { box = stage.getBoundingClientRect(); return hitTest(e.clientX - box.left, e.clientY - box.top, null); };
+document.addEventListener('dragover', (e) => {
+  if (!linkDrag) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  const hit = linkHit(e); const zone = $('#dropzone');
+  if (hit?.preview) { zone.hidden = false; const p = hit.preview; zone.style.cssText = `left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px`; zone.dataset.kind = hit.kind; } else zone.hidden = true;
+});
+document.addEventListener('dragleave', (e) => { if (linkDrag && !e.relatedTarget) $('#dropzone').hidden = true; });
+document.addEventListener('drop', async (e) => {
+  if (!linkDrag) return;
+  e.preventDefault();
+  const token = e.dataTransfer.getData('application/x-wakeup-link') || linkDrag.token;
+  const hit = linkHit(e); const at = { x: e.clientX - box.left, y: e.clientY - box.top };
+  linkDragging(null);
+  const id = await hub.dockLink(token);
+  for (let i = 0; id && !BY[id] && i < 40; i++) await new Promise((r) => setTimeout(r, 25)); // its settings update is on the way
+  if (!id || !BY[id]) return;
+  if (hit) applyDrop(id, hit, at); else openFileCmd({ id, how: 'beside' });
 });
 function findIn(id) {
   if (!BY[id] || L.popped.includes(id) || isLocal(id)) return;
@@ -957,10 +991,11 @@ function applyPayload(p) {
   BY = Object.fromEntries(ALL.map((x) => [x.id, x]));
   SET = p.settings; META = { version: p.version, autostart: p.autostart, defaultDownloadDir: p.defaultDownloadDir, defaultShotDir: p.defaultShotDir };
   const ws = WEEK_START; WEEK_START = SET.weekStart;
+  const lm = LABEL_MODE; LABEL_MODE = SET.classLabel || 'code';
   if (p.layout) Object.assign(L, p.layout);
   for (const [id, el] of paneEls) if (!L.alive.includes(id) || !BY[id]) { el.remove(); paneEls.delete(id); }
   if (before !== svcSig()) buildSidebar(); // panes re-create themselves if their own name/icon changed
-  if (ws !== WEEK_START) plannerUpdated();
+  if (ws !== WEEK_START || lm !== LABEL_MODE) plannerUpdated();
   if (settingsOpen) renderSettings();
   render();
 }
@@ -976,9 +1011,14 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('online', () => { hub.retryFailed(); for (const id of Object.keys(status)) if (status[id] === 'error') renderStatus(id); });
 window.addEventListener('offline', () => { for (const id of Object.keys(status)) if (status[id] === 'error') renderStatus(id); });
-new ResizeObserver(() => render()).observe(stage);
-// once a minute: countdowns on Today, the timetable's "now" line, and the day rolling over for task badges
+// resizing: lay out once per frame, not once per observer callback
+let resizeFrame = 0;
+new ResizeObserver(() => { if (!resizeFrame) resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; render(); }); }).observe(stage);
+// once a minute: countdowns on Today, the timetable's "now" line, and the day rolling over for task badges.
+// Nothing to update while the window is hidden; catch up the moment it's shown again.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (showHome() && !overlayOpen) renderToday(); for (const el of paneEls.values()) el._view?.tick?.(); updateSidebar(); } });
 setInterval(() => {
+  if (document.hidden) return;
   const typing = document.activeElement?.matches?.('#home input');
   if (showHome() && !typing && !overlayOpen) renderToday();
   for (const el of paneEls.values()) el._view?.tick?.();

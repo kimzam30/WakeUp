@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-ff7a6b">
+  <img alt="Version 2.4.0" src="https://img.shields.io/badge/version-2.4.0-ff7a6b">
   <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-8b6cf6">
   <img alt="Electron 45" src="https://img.shields.io/badge/Electron-45-22b07d">
   <img alt="Licence: private" src="https://img.shields.io/badge/licence-private-a59cb4">

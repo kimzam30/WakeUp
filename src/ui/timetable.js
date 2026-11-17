@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, PL, WEEK_START, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, fmtTime, classLabel, classIcon, classSvg, emptyArt, KIND, DAYS, DAYS_LONG, MONTHS, btnSvg */
+/* global hub, PL, WEEK_START, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, fmtTime, classLabel, classSub, classFull, classIcon, classSvg, emptyArt, KIND, DAYS, DAYS_LONG, MONTHS, btnSvg */
 /* eslint-disable no-unused-vars */
 // Timetable: the semester's weekly classes, with one-off changes (cancelled, online, moved, replacement).
 
@@ -60,8 +60,9 @@ function TimetableView(root) {
     const chip = STATUS_CHIP[o.status];
     return `<button class="tt-block st-${o.status}${o.mode === 'online' ? ' online' : ''}" data-key="${esc(o.key)}" data-date="${o.date}" data-c="${esc(o.cls.color)}"
       data-top="${(Planner.mins(o.start) - from * 60) / 60}" data-len="${(Planner.mins(o.end) - Planner.mins(o.start)) / 60}" data-lane="${o.lane}"
-      title="${esc(`${o.cls.name} · ${fmtTime(o.start)}–${fmtTime(o.end)}`)}">
+      title="${esc(`${classFull(o.cls)} · ${fmtTime(o.start)}–${fmtTime(o.end)}`)}">
       <span class="b-top"><span class="b-ico">${classIcon(o.cls)}</span><b>${esc(classLabel(o.cls))}</b></span>
+      ${classSub(o.cls) ? `<em class="b-name">${esc(classSub(o.cls))}</em>` : ''}
       <span class="b-sub">${esc([KIND[o.kind], o.section].filter(Boolean).join(' · '))}</span>
       <span class="b-sub">${esc(o.mode === 'online' ? 'Online' : o.venue || '')}</span>
       ${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</button>`;
@@ -99,7 +100,7 @@ function TimetableView(root) {
       html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}"><h3>${d === today ? 'Today · ' : ''}${fmtDate(d, true)}${br ? ` <span class="chip warn">${esc(br.label)}</span>` : ''}</h3>
         ${list.map((o) => { const chip = STATUS_CHIP[o.status]; return `<button class="ag-row st-${o.status}" data-key="${esc(o.key)}" data-date="${d}" data-c="${esc(o.cls.color)}">
           <span class="ag-time">${fmtTime(o.start)}<small>${fmtTime(o.end)}</small></span><span class="ag-ico">${classIcon(o.cls)}</span>
-          <span class="ag-main"><b>${esc(classLabel(o.cls))}</b> ${esc(o.cls.code && o.cls.name !== o.cls.code ? o.cls.name : '')}<small>${esc([KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small></span>
+          <span class="ag-main"><b>${esc(classLabel(o.cls))}</b> ${esc(classSub(o.cls))}<small>${esc([KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · '))}</small></span>
           ${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</button>`; }).join('')}</section>`;
     }
     return html || `<div class="empty small">${emptyArt('cal')}<h3>No classes in these two weeks</h3><p>Nothing is scheduled. Use the arrows to look further ahead.</p></div>`;
@@ -139,7 +140,7 @@ function TimetableView(root) {
       }
       const changeable = o.status === 'normal' || o.status === 'online';
       return `<div class="sheet-card occ" data-c="${esc(c.color)}" role="dialog" aria-label="${esc(c.name)}">
-        <div class="occ-hero"><span class="occ-ico">${classIcon(c)}</span><div class="occ-title"><h3>${esc(classLabel(c))}${c.code && c.name !== c.code ? ` <span>${esc(c.name)}</span>` : ''}</h3><p>${esc([KIND[o.kind], o.section].filter(Boolean).join(' · '))}${chip ? ` <span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</p></div>
+        <div class="occ-hero"><span class="occ-ico">${classIcon(c)}</span><div class="occ-title"><h3>${esc(classLabel(c))}${classSub(c) ? ` <span>${esc(classSub(c))}</span>` : ''}</h3><p>${esc([KIND[o.kind], o.section].filter(Boolean).join(' · '))}${chip ? ` <span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</p></div>
           <button class="hbtn" data-act="close" aria-label="Close">${btnSvg('close')}</button></div>
         <div class="facts">
           <div>${btnSvg('clock')}<span>${fmtDate(o.date, true)}, ${fmtTime(o.start)} – ${fmtTime(o.end)}</span></div>

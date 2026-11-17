@@ -8,6 +8,34 @@ const SECTIONS = [['general', 'General'], ['apps', 'Apps'], ['timetable', 'Timet
 let setTab = 'general';
 let appForm = null; // null | {id?, name, url, color, own, error}
 let confirmRemove = null; // custom app id waiting for confirmation
+let SYNC = { signedIn: false, phase: 'off' }; // cloud sync status from main
+const syncAgo = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60e3); return !iso ? 'not yet' : m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
+function syncRow() {
+  const y = SYNC;
+  if (!y.signedIn) {
+    const busy = y.signingIn || y.phase === 'signing';
+    return row('Sync with Google', `See the same timetable, tasks and settings on your phone, tablet and other computers. Your Microsoft and Ebwise sign-ins stay on this device.${y.error ? `<br><span class="bad-text">Sign-in didn’t finish: ${esc(y.error)}</span>` : ''}`,
+      busy ? '<span class="set-desc">Finish signing in in your browser…</span><button class="btn small" data-act="sync-cancel">Cancel</button>'
+        : '<button class="btn small primary" data-act="sync-in">Sign in with Google</button>');
+  }
+  const n = (k, one) => `${k} ${one}${k === 1 ? '' : 's'}`;
+  const state = y.phase === 'syncing' ? 'Syncing…' : y.phase === 'offline' ? `Offline. ${y.pending ? `${n(y.pending, 'change')} will upload` : 'Changes will sync'} when you’re back online.`
+    : y.phase === 'expired' ? `<span class="bad-text">Your sign-in expired.</span> ${y.pending ? `${n(y.pending, 'change')} waiting. ` : ''}Sign in again to keep syncing.`
+    : y.phase === 'error' ? `<span class="bad-text">Sync stopped: ${esc(y.error || 'unknown error')}</span>` : `Up to date · synced ${syncAgo(y.lastSync)}`;
+  const actions = y.phase === 'expired'
+    ? `<button class="btn small primary" data-act="sync-in">Sign in again</button><button class="btn small" data-act="sync-out">Sign out</button>`
+    : `<button class="btn small" data-act="sync-now"${y.phase === 'syncing' ? ' disabled' : ''}>Sync now</button><button class="btn small" data-act="sync-out">Sign out</button>`;
+  return row(`Signed in as ${esc(y.name || y.email)}`, `${y.name ? `${esc(y.email)} · ` : ''}${state}${y.rejected ? `<br><span class="bad-text">${n(y.rejected, 'item')} couldn’t sync and stay${y.rejected === 1 ? 's' : ''} on this computer only.</span>` : ''}`, actions)
+    + row('What syncs', 'Your timetable, semester, tasks, theme, nickname, reminders and your own apps. Window layout, folders, notification choices and app sign-ins stay on each device. Signing out keeps everything on this computer.')
+    + (y.weakKeyring ? row('Sign-in storage', '<span class="bad-text">No system keyring found</span>, so your WakeUp sign-in is stored without encryption on this computer. Install and unlock GNOME Keyring or KWallet to protect it.') : '');
+}
+// only the Sync card changes when sync status does; the rest of the page stays as it is (keeps focus and scroll)
+function refreshSyncCard() {
+  const card = document.querySelector('#settings [data-sync-card]');
+  if (card) card.innerHTML = syncRow(); else if (settingsOpen && setTab === 'general') renderSettings();
+}
+hub.onSync?.((st) => { SYNC = st; if (settingsOpen && setTab === 'general') refreshSyncCard(); });
+hub.sync?.('status').then((st) => { if (st) SYNC = st; });
 const AI_PRESETS = [ // a starting point; any AI that works in a browser can be added with 'Other'
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
   ['Copilot', 'https://copilot.microsoft.com/', '#2b63d9'], ['Perplexity', 'https://www.perplexity.ai/', '#20808d'], ['DeepSeek', 'https://chat.deepseek.com/', '#4d6bfe'],
@@ -41,7 +69,8 @@ const group = (title, body) => `<section class="set-group">${title ? `<h2>${titl
 function sectionHtml(tab) {
   const S = SET;
   if (tab === 'general') {
-    return group('You',
+    return `<section class="set-group"><h2>Sync</h2><div class="set-card" data-sync-card>${syncRow()}</div></section>`
+      + group('You',
       row('Your nickname', 'WakeUp greets you with it on the Today screen and in class reminders.', `<form class="nick-set" data-form="nickname" autocomplete="off"><input class="text-in" name="nickname" maxlength="30" placeholder="e.g. Kim" value="${esc(S.nickname)}" aria-label="Your nickname"><button class="hbtn tick" type="submit" title="Save nickname" aria-label="Save nickname">${btnSvg('check')}</button><span class="save-state" role="status"></span></form>`))
       + group('Starting up',
       row('Start at login', 'WakeUp opens hidden in the tray when you sign in to your computer.', sw('autostart', META.autostart, 'Start at login'))
@@ -94,7 +123,9 @@ function sectionHtml(tab) {
       row('Remind me before each class', 'A notification with the venue, or a Join button for online classes. Cancelled classes are skipped.',
         sel('reminders', S.reminders, [[0, 'Off'], [5, '5 minutes before'], [10, '10 minutes before'], [15, '15 minutes before']], 'Class reminders')))
       + group('Calendar',
-        row('Weeks start on', '', seg('weekStart', S.weekStart, [[1, 'Monday'], [0, 'Sunday']], 'Weeks start on')))
+        row('Show classes as', S.classLabel === 'name' ? 'Subject name only, e.g. “Mini IT Project”.' : S.classLabel === 'both' ? 'Code and name, e.g. “CSP1123 · Mini IT Project”.' : 'Subject code only, e.g. “CSP1123”. Classes without a code show their name.',
+          seg('classLabel', S.classLabel, [['code', 'Code'], ['name', 'Name'], ['both', 'Both']], 'Show classes as'))
+        + row('Weeks start on', '', seg('weekStart', S.weekStart, [[1, 'Monday'], [0, 'Sunday']], 'Weeks start on')))
       + group('Backup and sharing',
         row('Export your timetable', 'Save your classes, changes and tasks to a file, to back them up or share the timetable with classmates.', '<button class="btn small" data-act="tt-export">Export…</button>')
         + row('Import a timetable', 'Replaces your classes with the ones in the file. Your tasks are kept, and any tasks in the file are added.', '<button class="btn small" data-act="tt-import">Import…</button>'));
@@ -223,6 +254,14 @@ function onSettingsClick(e) {
   else if (act === 'pick-shots') hub.pickFolder('screenshots').then((dir) => { if (dir) save({ screenshotDir: dir }); });
   else if (act === 'reset-shots') save({ screenshotDir: '' });
   else if (act === 'tt-export') hub.exportPlanner();
+  else if (act === 'sync-in') { SYNC = { ...SYNC, signingIn: true, error: null }; refreshSyncCard(); hub.sync('sign-in').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } }); }
+  else if (act === 'sync-cancel') hub.sync('cancel').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
+  else if (act === 'sync-now') hub.sync('now');
+  else if (act === 'sync-out') {
+    const go = () => hub.sync('sign-out').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
+    if (SYNC.pending && !confirm(`${SYNC.pending} change${SYNC.pending === 1 ? ' hasn’t' : 's haven’t'} synced yet. Sign out anyway? They stay on this computer but won’t reach your other devices.`)) return;
+    go();
+  }
   else if (act === 'tt-import') hub.importPlanner().then((r) => { if (r?.error) t.closest('.set-row').querySelector('.set-desc').textContent = r.error; else if (r?.planner) t.textContent = 'Imported'; });
   else if (act === 'logs') hub.app('logs');
   else if (act === 'reset-layout') { Object.assign(L, { tile: null, free: [], popped: [], alive: [], zoomed: null, focused: null, splits: [] }); toggleSettings(false); commit(); }
