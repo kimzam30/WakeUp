@@ -1,69 +1,34 @@
 'use strict';
-/* global hub */
+/* global hub, Planner, PL:writable, WEEK_START:writable, plannerListeners, plannerUpdated, taskBadge, ICONS, BTN, S16, MARK, MARK_VB, svg, btnSvg, esc, glyph, $, $$, h, clamp, uniq, sum, store, paint,
+   FindBar, TasksView, TimetableView, renderToday, openSwitcher, openHelp, splitTitle,
+   toggleSettings, renderSettings, toggleDownloads, renderDownloads, renderDlButton, onDownload, onDownloadsClick */
 // WakeUp shell UI. The layout lives here; main validates/persists it and places the native web views
 // where this file says the pane bodies are (web views always paint above this HTML).
+//
+// Navigation: clicking an app shows it on its own. Apps you arranged side by side are remembered as a
+// "split": clicking any app in a remembered split brings the whole split back.
 
-const GAP = 8; const HEADER = 34; const MIN_TILE = 200; const MIN_FREE_W = 280; const MIN_FREE_H = 180; const SNAP = 10;
+const GAP = 6; const MIN_TILE = 200; const MIN_FREE_W = 280; const MIN_FREE_H = 180; const SNAP = 10;
+let HEADER = 40; // pane header height in px; follows the UI scale (set in render)
 
-// ---------- icons (24px glyphs, 16px header buttons) ----------
-const ICONS = {
-  ebwise: '<path d="M12 4 2 9l10 5 8-4v6h2V9z"/><path d="M6 12.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.5l-6 3z"/>',
-  mail: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zm2 .8v.3l7 4.6 7-4.6v-.3zm0 2.7V17h14v-7l-7 4.6z"/>',
-  calendar: '<path d="M7 2h2v2h6V2h2v2h2.5A1.5 1.5 0 0 1 21 5.5v14a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-14A1.5 1.5 0 0 1 4.5 4H7zM5 9v10h14V9zm2 2h3v3H7z"/>',
-  todo: '<path d="M9.5 16.2 5.3 12l-1.4 1.4 5.6 5.6L21.1 7.4 19.7 6z"/>',
-  teams: '<circle cx="9" cy="7.5" r="3"/><circle cx="17" cy="8.5" r="2.2"/><path d="M3 18c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5v1H3zm13.5-4.3c2.6.2 4.5 1.9 4.5 4.3v1h-4.5v-1c0-1.6-.6-3.1-1.6-4.2.5-.1 1-.1 1.6-.1z"/>',
-};
-const S16 = (d) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-const BTN = {
-  back: S16('M10 3 5 8l5 5'),
-  reload: S16('M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3'),
-  external: S16('M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5'),
-  popout: S16('M6 3H3.5A.5.5 0 0 0 3 3.5v9a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V10M9 3h4v4M13 3 8 8'),
-  zoom: S16('M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3'),
-  unzoom: S16('M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3'),
-  close: S16('M4.5 4.5l7 7M11.5 4.5l-7 7'),
-  tile: S16('M2.5 3.5h11v9h-11zM8 3.5v9M8 8h5.5'),
-  free: S16('M2.5 2.5h7v6h-7zM6.5 7.5h7v6h-7z'),
-  layouts: S16('M2.5 3h11v10h-11zM7 3v10M7 8h6.5'),
-  warn: S16('M8 2.5 14 13H2zM8 6.5v3M8 11.3v.2'),
-  offline: S16('M2 6a9 9 0 0 1 12 0M4.3 8.5a5.5 5.5 0 0 1 7.4 0M6.6 11a2 2 0 0 1 2.8 0M2.5 2.5l11 11'),
-  pause: S16('M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5v3l2 1.5'),
-  download: S16('M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10'),
-  settings: S16('M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6M10 2.5v4M6 9.5v4'),
-};
-// WakeUp mark: the app icon's looping W + sparks (1024 grid, cropped by MARK_VB).
-const MARK = '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path stroke-width="74" d="M282 372C298 540 336 690 398 690C452 690 470 572 492 520C506 486 536 470 552 492C568 516 546 546 520 534C500 524 506 486 532 488C566 560 572 690 628 690C690 690 716 540 732 372"/><path stroke-width="56" d="M722 236L742 184M790 278L834 246M818 350L870 340"/></g>';
-const MARK_VB = '230 140 690 600';
-const svg = (body, vb = '0 0 24 24', fill = 'currentColor') => `<svg viewBox="${vb}" fill="${fill}" aria-hidden="true">${body}</svg>`;
-const btnSvg = (k) => svg(BTN[k], '0 0 16 16', 'none');
-const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-// App glyph: built-in icon, a custom app's favicon, or its first letter.
-function glyph(svc) {
-  if (ICONS[svc.id]) return svg(ICONS[svc.id]);
-  if (svc.icon) return `<img class="fav" src="${esc(svc.icon)}" alt="">`;
-  return `<span class="letter">${esc((svc.name.trim()[0] || '?').toUpperCase())}</span>`;
-}
 const KEYS_HTML = `<dl class="keys">
-  <div><dt><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open or focus an app</dd></div>
-  <div><dt><kbd>Ctrl</kbd><kbd>W</kbd></dt><dd>Close pane</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>K</kbd></dt><dd>Jump to an app, file or action</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open an app</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd></dt><dd>Today</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>W</kbd></dt><dd>Close app</dd></div>
   <div><dt><kbd>Ctrl</kbd><kbd>F</kbd></dt><dd>Find in page</dd></div>
-  <div><dt><kbd>Ctrl</kbd><kbd>M</kbd></dt><dd>Zoom pane</dd></div>
-  <div><dt><kbd>Ctrl</kbd><kbd>Tab</kbd></dt><dd>Next pane</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>R</kbd></dt><dd>Reload</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>S</kbd></dt><dd>Screenshot</dd></div>
   <div><dt><kbd>Ctrl</kbd><kbd>J</kbd></dt><dd>Downloads</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>M</kbd></dt><dd>Full screen in the window</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Tab</kbd></dt><dd>Next app in a split</dd></div>
   <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>O</kbd></dt><dd>Pop out / dock back</dd></div>
   <div><dt><kbd>Ctrl</kbd><kbd>,</kbd></dt><dd>Settings</dd></div>
-  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd></dt><dd>Tiled ↔ free-floating</dd></div>
   <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd></dt><dd>Next layout</dd></div>
-  <div><dt>Drag a pane’s title</dt><dd>Edge to split, centre to swap</dd></div>
+  <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd></dt><dd>Tiled ↔ free-floating</dd></div>
+  <div><dt>Drag an app onto the screen</dt><dd>Edge to split, centre to swap</dd></div>
   <div><dt>Right-click a link</dt><dd>Open in browser, copy, save</dd></div>
 </dl>`;
-
-// ---------- tiny helpers ----------
-const $ = (s, el = document) => el.querySelector(s);
-const h = (tag, attrs = {}, html = '') => { const el = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (v === true) el.setAttribute(k, ''); else if (v != null && v !== false) el.setAttribute(k, v); } el.innerHTML = html; return el; };
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const uniq = (a) => [...new Set(a)];
-const sum = (a) => a.reduce((x, y) => x + y, 0);
 
 // ---------- split tree ----------
 const leaf = (pane) => ({ pane });
@@ -90,6 +55,7 @@ function removeLeaf(n, id) {
   n.children.forEach((c, i) => { const k = removeLeaf(c, id); if (k) { children.push(k); sizes.push(n.sizes[i]); } });
   return normalize({ dir: n.dir, sizes, children });
 }
+const removeMany = (n, ids) => ids.reduce((t, id) => removeLeaf(t, id), n);
 const mapLeaf = (n, f) => (!n ? n : n.pane ? leaf(f(n.pane)) : { ...n, children: n.children.map((c) => mapLeaf(c, f)) });
 const swapLeaves = (n, a, b) => mapLeaf(n, (p) => (p === a ? b : p === b ? a : p));
 function insertAt(n, target, id, side) {
@@ -113,7 +79,7 @@ function insertRoot(n, id, side) {
   return normalize({ dir, sizes: before ? [0.34, 0.66] : [0.66, 0.34], children: before ? [leaf(id), n] : [n, leaf(id)] });
 }
 
-// ---------- layout presets ----------
+// ---------- layout presets (Layouts menu) ----------
 const PRESETS = [
   { id: 'single', name: 'Single', n: 1, build: ([a]) => leaf(a) },
   { id: 'cols2', name: 'Side by side', n: 2, build: ([a, b]) => H([leaf(a), leaf(b)]) },
@@ -122,44 +88,76 @@ const PRESETS = [
   { id: 'cols3', name: 'Three columns', n: 3, build: (x) => H(x.map(leaf)) },
   { id: 'grid', name: 'Grid', n: 4, build: ([a, b, c, d]) => V([H([leaf(a), leaf(b)]), H([leaf(c), leaf(d)])]) },
   { id: 'main3', name: 'Main + 3', n: 4, build: ([a, ...r]) => H([leaf(a), V(r.map(leaf))], [0.6, 0.4]) },
-  { id: 'five', name: 'All five', n: 5, build: (x) => V([H(x.slice(0, 3).map(leaf)), H(x.slice(3).map(leaf))]) },
+  { id: 'five', name: 'Five', n: 5, build: (x) => V([H(x.slice(0, 3).map(leaf)), H(x.slice(3).map(leaf))]) },
 ];
-const DEFAULT_PRESET = { 1: 'single', 2: 'cols2', 3: 'main2', 4: 'grid', 5: 'five' };
 function presetThumb(p) {
   const cells = {}; tileCells(p.build(['a', 'b', 'c', 'd', 'e'].slice(0, p.n)), 1, 1, 26, 18, cells, []);
   return svg(Object.values(cells).map((r) => `<rect x="${r.x + 0.9}" y="${r.y + 0.9}" width="${r.w - 1.8}" height="${r.h - 1.8}" rx="1.6"/>`).join(''), '0 0 28 20', 'currentColor');
 }
 
 // ---------- state ----------
-let SV = []; let BY = {}; let ALL = []; // shown apps, all apps by id, all apps in order
+let SV = []; let BY = {}; let ALL = []; let APPS = []; let FILES = []; // shown apps, everything by id, every service, apps (no files), open files
 let SET = {}; let META = {};
 const DL = new Map(); // downloads by id
+let SHOTS = [];
 let settingsOpen = false; let dlOpen = false;
-let L = { mode: 'tile', tile: null, free: [], alive: [], popped: [], focused: null, zoomed: null };
-let last = null;
+let L = { mode: 'tile', tile: null, free: [], alive: [], popped: [], focused: null, zoomed: null, splits: [] };
 const status = {}; const unread = {}; const statusInfo = {};
-let homeOpen = false; let menuOpen = false; let dragging = false;
+let homeOpen = false; let menuOpen = false; let dragging = false; let popoverOpen = false; let overlayOpen = false;
+let tipPane = null; // pane showing the one-time "drag to split" tip
 const stage = $('#stage');
 
 const visible = () => (L.mode === 'tile' ? leaves(L.tile) : L.free.map((p) => p.id));
 const shown = () => (L.zoomed && visible().includes(L.zoomed) ? [L.zoomed] : visible());
 const showHome = () => homeOpen || visible().length === 0;
+const isLocal = (id) => BY[id]?.kind === 'local';
+// Keep remembered splits honest: an app lives in at most one split, and never in one while it's popped out,
+// closed, hidden, or part of the split on screen right now.
+function cleanSplits() {
+  const onScreen = L.mode === 'tile' && visible().length > 1 ? visible() : [];
+  const drop = new Set([...onScreen, ...L.popped]);
+  const seen = new Set();
+  L.splits = L.splits.map((s) => {
+    const t = removeMany(s.tile, leaves(s.tile).filter((id) => drop.has(id) || seen.has(id) || !L.alive.includes(id) || !BY[id] || BY[id].hidden));
+    leaves(t).forEach((id) => seen.add(id));
+    return { tile: t, focused: leaves(t).includes(s.focused) ? s.focused : leaves(t)[0] };
+  }).filter((s) => s.tile && !s.tile.pane).slice(0, 6);
+}
 function commit() {
   L.alive = uniq([...L.alive, ...visible(), ...L.popped]);
   if (L.focused && !L.alive.includes(L.focused)) L.focused = null;
   if (!L.focused || !visible().includes(L.focused)) L.focused = visible()[0] ?? null;
   if (L.zoomed && !visible().includes(L.zoomed)) L.zoomed = null;
+  cleanSplits();
   hub.commit(L);
   render();
 }
 
 // ---------- geometry ----------
+// Splits adapt to the room they have: each pane keeps a usable minimum (scaled with the UI), and panes with room to
+// spare give it up first. Your saved proportions are kept, so the layout springs back when the window grows again.
+const minOf = (n, dir) => { // smallest width ('h') or height ('v') a subtree can take
+  if (n.pane) return dir === 'h' ? scaled(isLocal(n.pane) ? 300 : 340) : scaled(200);
+  const m = n.children.map((c) => minOf(c, dir));
+  return n.dir === dir ? sum(m) : Math.max(...m);
+};
+function fitSizes(total, fr, mins) {
+  if (sum(mins) >= total) return mins.map((m) => (total * m) / sum(mins)); // not enough room for everyone: share by need
+  const size = fr.map((f) => total * f);
+  for (let k = 0; k < fr.length; k++) { // a few passes settle it (n is tiny)
+    const short = size.reduce((a, s, i) => a + Math.max(0, mins[i] - s), 0); if (short < 0.5) break;
+    const spare = size.map((s, i) => Math.max(0, s - mins[i])); const pool = sum(spare);
+    size.forEach((s, i) => { size[i] = s < mins[i] ? mins[i] : s - (short * spare[i]) / pool; });
+  }
+  return size;
+}
 function tileCells(n, x, y, w, hgt, out, divs, path = []) {
   if (!n) return;
   if (n.pane) { out[n.pane] = { x, y, w, h: hgt }; return; }
   let off = 0; const total = n.dir === 'h' ? w : hgt;
+  const sizes = fitSizes(total, n.sizes, n.children.map((c) => minOf(c, n.dir)));
   n.children.forEach((c, i) => {
-    const size = total * n.sizes[i];
+    const size = sizes[i];
     if (i > 0) divs.push({ node: n, i, dir: n.dir, at: (n.dir === 'h' ? x : y) + off, x, y, w, h: hgt, key: `${path.join('.')}:${i}` });
     if (n.dir === 'h') tileCells(c, x + off, y, size, hgt, out, divs, [...path, i]);
     else tileCells(c, x, y + off, w, size, out, divs, [...path, i]);
@@ -188,26 +186,38 @@ const blocked = (id) => ['error', 'crashed', 'hung'].includes(status[id]);
 
 function render(dragFrame = false) {
   if (!SV.length) return; // not initialised yet
+  HEADER = scaled(40); document.documentElement.style.setProperty('--hdr', `${HEADER}px`);
   box = stage.getBoundingClientRect();
   geometry();
   document.body.classList.toggle('mode-free', L.mode === 'free');
   document.body.classList.toggle('zoomed', !!L.zoomed);
-  document.body.classList.toggle('compact', !!SET.compact);
+  const rail = !!SET.compact || (innerWidth < 860 && !sideOpen); // small windows fold the sidebar to icons by themselves
+  if (!document.body.classList.contains('side-drag')) { // while dragging its edge, the drag sets these
+    document.body.classList.toggle('compact', rail);
+    document.body.classList.toggle('no-labels', !SET.labels || rail);
+    if (SET.sideWidth && !rail) document.body.style.setProperty('--side-w', `${SET.sideWidth}px`); else document.body.style.removeProperty('--side-w');
+  }
+  const tg = $('#sideToggle'); if (tg) { const t = rail ? 'Expand the sidebar' : 'Collapse the sidebar'; tg.title = t; tg.setAttribute('aria-label', t); tg.setAttribute('aria-expanded', String(!rail)); }
   const home = showHome();
   $('#home').hidden = !home;
-  if (home && !dragFrame) renderHome();
+  if (home && !dragFrame) renderToday();
   const order = L.mode === 'free' ? L.free.map((p) => p.id) : Object.keys(R);
   for (const [id, el] of paneEls) if (!R[id]) el.hidden = true;
+  const many = shown().length > 1;
   order.forEach((id, z) => {
     const r = R[id]; if (!r) return;
     const el = paneEl(id);
     el.hidden = false;
     Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px`, zIndex: String(z + 1) });
-    el.classList.toggle('focused', id === L.focused && shown().length > 1);
+    el.classList.toggle('focused', id === L.focused && many);
     el.classList.toggle('blocked', blocked(id));
+    el.classList.toggle('narrow', r.w < scaled(520));
+    el.classList.toggle('tiny', r.w < scaled(340));
     const zb = el.querySelector('[data-a="zoom"]');
     const isZ = L.zoomed === id;
-    if (zb.dataset.z !== String(isZ)) { zb.dataset.z = String(isZ); zb.innerHTML = btnSvg(isZ ? 'unzoom' : 'zoom'); zb.title = isZ ? 'Restore (Ctrl+M)' : 'Zoom (Ctrl+M)'; zb.setAttribute('aria-label', isZ ? 'Restore' : 'Zoom'); }
+    if (zb.dataset.z !== String(isZ)) { zb.dataset.z = String(isZ); zb.innerHTML = btnSvg(isZ ? 'unzoom' : 'zoom'); zb.title = isZ ? 'Back to the split (Ctrl+M)' : 'Fill the window (Ctrl+M)'; zb.setAttribute('aria-label', isZ ? 'Restore' : 'Fill the window'); }
+    zb.hidden = !isZ && visible().length < 2;
+    $('.tip', el).hidden = tipPane !== id;
   });
   // dividers (keyed, so one being dragged keeps its pointer capture)
   const keep = new Set();
@@ -223,7 +233,7 @@ function render(dragFrame = false) {
   }
   for (const [k, el] of divEls) if (!keep.has(k) && !el.classList.contains('active')) { el.remove(); divEls.delete(k); }
   if (!dragFrame) updateSidebar();
-  setCover(home || menuOpen || dragging || settingsOpen || dlOpen);
+  setCover(home || menuOpen || dragging || settingsOpen || dlOpen || popoverOpen || overlayOpen);
   queueBounds();
 }
 
@@ -235,7 +245,7 @@ function queueBounds() {
     const rects = {}; const order = [];
     const ids = L.mode === 'free' ? L.free.map((p) => p.id).filter((id) => R[id]) : Object.keys(R);
     for (const id of ids) {
-      if (blocked(id)) continue;
+      if (blocked(id) || isLocal(id)) continue;
       const r = R[id];
       rects[id] = { x: box.left + r.x, y: box.top + r.y + HEADER, width: r.w, height: r.h - HEADER };
       order.push(id);
@@ -244,24 +254,58 @@ function queueBounds() {
   });
 }
 let covered = null;
+// ---------- sidebar: collapse, and drag its edge to resize ----------
+let sideOpen = false; // expanded by hand while the window is too small for it
+function toggleSidebar() {
+  const rail = document.body.classList.contains('compact');
+  if (rail && SET.compact) hub.setSettings({ compact: false }).then(applyPayload);
+  else if (rail) { sideOpen = true; render(); }
+  else { sideOpen = false; if (innerWidth >= 860) hub.setSettings({ compact: true }).then(applyPayload); else render(); }
+}
+function startSideResize(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const sb = $('#sidebar'); const start = sb.getBoundingClientRect().width; const x0 = e.clientX;
+  let w = start;
+  document.body.classList.add('resizing', 'col', 'side-drag'); setCover(true);
+  track(e, (ev) => {
+    w = start + ev.clientX - x0;
+    const fold = w < 140; // dragged nearly shut: fold to icons
+    document.body.classList.toggle('compact', fold); document.body.classList.toggle('no-labels', fold || !SET.labels);
+    if (!fold) document.body.style.setProperty('--side-w', `${clamp(Math.round(w), 180, 480)}px`);
+    render(true);
+  }, (_ev, ok) => {
+    document.body.classList.remove('resizing', 'col', 'side-drag'); setCover(false);
+    if (!ok) { render(); return; }
+    sideOpen = innerWidth < 860 && w >= 140;
+    hub.setSettings(w < 140 ? { compact: true } : { compact: false, sideWidth: clamp(Math.round(w), 180, 480) }).then(applyPayload);
+  });
+}
 function setCover(on) { if (covered !== on) { covered = on; hub.cover(on); } }
 
+const paneSig = (s) => `${s.kind}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.local ? 1 : 0}`;
 function paneEl(id) {
-  if (paneEls.has(id)) return paneEls.get(id);
   const svc = BY[id];
-  const el = h('section', { class: 'pane', 'aria-label': svc.name });
+  const old = paneEls.get(id);
+  if (old && old._sig === paneSig(svc)) return old;
+  old?.remove();
+  const el = h('section', { class: `pane kind-${svc.kind}`, 'aria-label': svc.name });
+  el._sig = paneSig(svc);
   el.style.setProperty('--svc', svc.color);
-  const b = (a, label, key) => `<button class="hbtn" data-a="${a}" title="${label}${key ? ` (${key})` : ''}" aria-label="${label}">${btnSvg(a)}</button>`;
+  const b = (a, label, key, icon = a) => `<button class="hbtn" data-a="${a}" title="${label}${key ? ` (${key})` : ''}" aria-label="${label}">${btnSvg(icon)}</button>`;
+  const nav = svc.kind === 'web' || (svc.kind === 'file' && !svc.local) ? `${b('back', 'Back')}${svc.kind === 'web' ? b('forward', 'Forward') : ''}${b('reload', 'Reload', 'Ctrl+R')}` : '';
+  const ext = svc.kind === 'local' ? '' : svc.kind === 'file' && svc.local ? `${b('folder', 'Show in folder')}${b('external', 'Open with another app', '', 'openwith')}` : b('external', 'Open in your browser');
   el.innerHTML = `
     <header>
+      <div class="nav">${nav}</div>
       <span class="glyph">${glyph(svc)}</span>
       <span class="name"></span>
+      <span class="pstat" role="status" hidden></span>
+      <span class="tip" hidden>Drag an app from the sidebar here to see two side by side <button class="tip-x" aria-label="Dismiss tip">${btnSvg('close')}</button></span>
       <span class="progress" aria-hidden="true"></span>
-      ${b('back', 'Back')}${b('reload', 'Reload', 'Ctrl+R')}${b('external', 'Open in browser')}
-      <span class="sep"></span>
-      ${b('popout', 'Pop out to its own window', 'Ctrl+Shift+O')}${b('zoom', 'Zoom', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}
+      <div class="acts">${b('shot', 'Screenshot', '', 'camera')}${b('split', 'Split with another app')}${ext}${b('popout', 'Pop out into its own window', 'Ctrl+Shift+O')}${b('zoom', 'Fill the window', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}</div>
     </header>
-    <div class="body"><span class="ghost-glyph">${glyph(svc)}</span><div class="state" role="status" aria-live="polite"></div></div>
+    <div class="body">${svc.kind === 'local' ? '<div class="local-root"></div>' : `<span class="ghost-glyph">${glyph(svc)}</span><div class="state" role="status" aria-live="polite"></div>`}</div>
     ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((e) => `<div class="rh ${e}" data-e="${e}"></div>`).join('')}`;
   $('.name', el).textContent = svc.name;
   el.querySelectorAll('.hbtn').forEach((btn) => {
@@ -272,14 +316,17 @@ function paneEl(id) {
       if (a === 'close') closePane(id);
       else if (a === 'zoom') toggleZoom(id);
       else if (a === 'popout') popOut(id);
+      else if (a === 'split') openSplitMenu(id, btn);
+      else if (a === 'shot') openShotMenu(btn, id);
       else hub.nav(id, a);
     });
   });
+  $('.tip-x', el).addEventListener('click', (e) => { e.stopPropagation(); dismissTip(); });
   const header = $('header', el);
-  el._find = FindBar(id, header, (open) => el.classList.toggle('finding', open));
-  $('.name', el).after(el._find.node);
+  if (svc.kind !== 'local') { el._find = FindBar(id, header, (open) => el.classList.toggle('finding', open)); $('.name', el).after(el._find.node); }
+  else el._view = id === 'tasks' ? TasksView($('.local-root', el)) : TimetableView($('.local-root', el));
   header.addEventListener('pointerdown', (e) => headerDown(e, id));
-  header.addEventListener('dblclick', () => toggleZoom(id));
+  header.addEventListener('dblclick', (e) => { if (!e.target.closest('.findbar, .tip')) toggleZoom(id); });
   el.addEventListener('pointerdown', () => focusPane(id));
   el.querySelectorAll('.rh').forEach((rh) => rh.addEventListener('pointerdown', (e) => startResize(e, id, rh.dataset.e)));
   stage.append(el);
@@ -290,7 +337,7 @@ function paneEl(id) {
 
 // ---------- per-pane status ----------
 function renderStatus(id) {
-  const el = paneEls.get(id); if (!el) return;
+  const el = paneEls.get(id); if (!el || isLocal(id)) return;
   const st = status[id]; const info = statusInfo[id] || {}; const name = BY[id].name;
   el.classList.toggle('loading', st === 'loading');
   const box2 = $('.state', el);
@@ -298,77 +345,135 @@ function renderStatus(id) {
   if (st === 'error') {
     const off = !navigator.onLine || info.code === -106;
     const why = { '-105': 'Its address couldn’t be found.', '-118': 'The connection timed out.', '-102': 'The server refused the connection.', '-21': 'Your network changed.', '-100': 'The connection was closed.', '-101': 'The connection was reset.', '-109': 'The site is unreachable.', '-137': 'Its address couldn’t be looked up.' }[info.code] || 'The page didn’t load.';
-    box2.innerHTML = panel(off ? 'offline' : 'warn', off ? 'You’re offline' : `Couldn’t load ${name}`,
-      off ? `${name} will reload by itself when your connection is back.` : `${why} Retrying automatically.<span class="code"></span>`,
+    box2.innerHTML = panel(off ? 'offline' : 'warn', off ? 'You’re offline' : `Couldn’t load ${esc(name)}`,
+      off ? `${esc(name)} will reload by itself when your connection is back.` : `${why} Retrying automatically.<span class="code"></span>`,
       '<button class="btn primary" data-r="retry">Try again</button>');
   } else if (st === 'crashed') {
-    box2.innerHTML = panel('warn', `${name} stopped working`, 'The page crashed. Reloading usually fixes it; you stay signed in.', '<button class="btn primary" data-r="retry">Reload</button>');
+    box2.innerHTML = panel('warn', `${esc(name)} stopped working`, 'The page crashed. Reloading usually fixes it; you stay signed in.', '<button class="btn primary" data-r="retry">Reload</button>');
   } else if (st === 'hung') {
-    box2.innerHTML = panel('pause', `${name} isn’t responding`, 'It may be busy. You can wait or reload it.', '<button class="btn" data-r="wait">Wait</button><button class="btn primary" data-r="retry">Reload</button>');
+    box2.innerHTML = panel('pause', `${esc(name)} isn’t responding`, 'It may be busy. You can wait or reload it.', '<button class="btn" data-r="wait">Wait</button><button class="btn primary" data-r="retry">Reload</button>');
   } else box2.innerHTML = '';
   const codeEl = $('.code', box2); if (codeEl) codeEl.textContent = info.desc || '';
   box2.querySelectorAll('[data-r]').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.r === 'wait') { status[id] = 'ready'; renderStatus(id); render(); } else hub.retry(id);
   }));
   el.classList.toggle('blocked', blocked(id));
+  drawPaneStatus(id);
+}
+// what a pane is doing, in its title bar: signing in, loading, asleep, offline, failed
+function drawPaneStatus(id) {
+  const el = paneEls.get(id); const chip = el && $('.pstat', el); if (!chip) return;
+  const n = paneNotice(id); const st = status[id];
+  const [text, tone] = n ? [n.kind === 'error' ? 'Sign-in needed' : 'Signing in…', n.kind === 'error' ? 'bad' : 'busy']
+    : st === 'loading' ? ['Loading…', 'busy'] : st === 'sleeping' ? ['Asleep', ''] : st === 'hung' ? ['Not responding', 'warn']
+      : st === 'crashed' ? ['Stopped', 'bad'] : st === 'error' ? [navigator.onLine ? 'Couldn’t load' : 'Offline', 'bad'] : ['', ''];
+  chip.hidden = !text; chip.textContent = text; chip.className = `pstat ${tone}`;
 }
 
 // ---------- sidebar ----------
 const sideBtns = new Map();
+function sideItem(svc, cls = '') {
+  const b = h('button', { class: `svc ${cls}`, 'aria-label': svc.name }, `<span class="tile">${glyph(svc)}</span><span class="lbl"></span><span class="badge" hidden></span>`);
+  b.style.setProperty('--svc', svc.color);
+  $('.lbl', b).textContent = svc.name;
+  b.addEventListener('pointerdown', (e) => dragSource(e, svc.id));
+  b.addEventListener('auxclick', (e) => { if (e.button === 1 && L.alive.includes(svc.id)) closePane(svc.id); });
+  b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPane(svc.id); } });
+  sideBtns.set(svc.id, b);
+  return b;
+}
 function buildSidebar() {
   if (!$('#brand .home')) {
-    const home = h('button', { class: 'home', title: 'Start screen (Ctrl+Shift+H)', 'aria-label': 'Start screen' }, svg(MARK, MARK_VB, 'none'));
-    home.onclick = () => { if (settingsOpen) toggleSettings(false); homeOpen = !homeOpen || visible().length === 0; render(); };
-    $('#brand').append(home);
-    const dl = h('button', { class: 'tool', id: 'dlBtn', title: 'Downloads (Ctrl+J)', 'aria-label': 'Downloads', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }, btnSvg('download'));
+    const tool = (id, title, label, icon, onclick, extra = {}, key = '') => { const t = h('button', { class: 'tool', id, title, 'aria-label': label, ...extra }, `${btnSvg(icon)}<span class="lbl">${label}</span>${key ? `<kbd>${key}</kbd>` : ''}`); t.onclick = onclick; return t; };
+    const home = h('button', { class: 'svc home', title: 'Today (Ctrl+Shift+H)', 'aria-label': 'Today' }, `<span class="tile">${btnSvg('home')}</span><span class="lbl">Today</span>`);
+    home.onclick = () => showToday(!(showHome() && !settingsOpen) || !visible().length);
+    const grip = h('div', { class: 'side-grip', title: 'Drag to resize the sidebar. Double-click to reset.', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the sidebar' });
+    grip.addEventListener('pointerdown', startSideResize);
+    grip.addEventListener('dblclick', () => { sideOpen = false; hub.setSettings({ sideWidth: 0, compact: false }).then(applyPayload); });
+    $('#sidebar').append(grip);
+    $('#brand').append(
+      h('div', { class: 'brand-row' }, `<span class="mark">${svg(MARK, MARK_VB, 'none')}</span><b>WakeUp</b><button class="hbtn side-toggle" id="sideToggle" title="Collapse the sidebar" aria-label="Collapse the sidebar">${btnSvg('sidebar')}</button>`),
+      tool('searchBtn', 'Jump to an app, file or action (Ctrl+K)', 'Search', 'search', () => openSwitcher(), {}, 'Ctrl K'),
+      home,
+    );
+    $('#sideToggle').onclick = toggleSidebar;
+    const dl = tool('dlBtn', 'Downloads (Ctrl+J)', 'Downloads', 'download', (e) => { e.stopPropagation(); toggleDownloads(); }, { 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
     dl.append(h('span', { class: 'badge', hidden: true }));
-    dl.onclick = (e) => { e.stopPropagation(); toggleDownloads(); };
-    const lay = h('button', { class: 'tool', id: 'layoutsBtn', title: 'Layouts (Ctrl+Shift+L)', 'aria-label': 'Layouts', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, btnSvg('layouts'));
-    lay.onclick = (e) => { e.stopPropagation(); toggleMenu(undefined, e.detail === 0); };
-    const set = h('button', { class: 'tool', id: 'setBtn', title: 'Settings (Ctrl+,)', 'aria-label': 'Settings' }, btnSvg('settings'));
-    set.onclick = () => toggleSettings();
-    $('#tools').append(dl, lay, set);
+    $('#tools').append(
+      tool('shotBtn', 'Screenshot (Ctrl+Shift+S)', 'Screenshot', 'camera', (e) => { e.stopPropagation(); openShotMenu(e.currentTarget); }, { 'aria-haspopup': 'menu' }),
+      dl,
+      tool('layoutsBtn', 'Layouts (Ctrl+Shift+L)', 'Layouts', 'layouts', (e) => { e.stopPropagation(); toggleMenu(undefined, e.detail === 0); }, { 'aria-haspopup': 'true', 'aria-expanded': 'false' }),
+      tool('setBtn', 'Settings (Ctrl+,)', 'Settings', 'settings', () => toggleSettings()),
+    );
   }
-  $('#services').replaceChildren(); sideBtns.clear();
-  SV.forEach((svc, i) => {
-    const b = h('button', { class: 'svc', title: `${svc.name}${i < 9 ? `  (Ctrl+${i + 1})` : ''}`, 'aria-label': svc.name }, glyph(svc));
-    b.style.setProperty('--svc', svc.color);
-    b.append(h('span', { class: 'badge', hidden: true }));
-    b.addEventListener('pointerdown', (e) => dragSource(e, svc.id));
-    b.addEventListener('auxclick', (e) => { if (e.button === 1 && L.alive.includes(svc.id)) closePane(svc.id); });
-    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPane(svc.id); } });
-    $('#services').append(b);
-    sideBtns.set(svc.id, b);
-  });
+  sideBtns.clear();
+  $('#services').replaceChildren(...SV.map((svc) => sideItem(svc)));
+  $('#files').replaceChildren(h('div', { class: 'nav-h' }, 'Files'), ...FILES.map((f) => {
+    const wrap = h('div', { class: 'file-item' });
+    const x = h('button', { class: 'fx', title: 'Close', 'aria-label': `Close ${f.name}` }, btnSvg('close'));
+    x.onclick = (e) => { e.stopPropagation(); closePane(f.id); };
+    wrap.append(sideItem(f, 'file'), x);
+    return wrap;
+  }));
+  $('#files').hidden = !FILES.length;
 }
 function updateSidebar() {
-  const vis = shown();
-  for (const [id, b] of sideBtns) {
+  const vis = shown(); const home = showHome();
+  const tasksDue = taskBadge();
+  SV.forEach((s, k) => {
+    const b = sideBtns.get(s.id); if (!b) return;
+    const id = s.id;
     b.classList.toggle('open', L.alive.includes(id));
-    b.classList.toggle('visible', vis.includes(id) && !showHome());
-    b.classList.toggle('focused', id === L.focused && !showHome());
+    b.classList.toggle('visible', vis.includes(id) && !home);
+    b.classList.toggle('focused', id === L.focused && !home && !settingsOpen);
     b.classList.toggle('popped', L.popped.includes(id));
     b.classList.toggle('asleep', status[id] === 'sleeping');
-    const n = unread[id] || 0; const badge = $('.badge', b);
+    const n = id === 'tasks' ? tasksDue : unread[id] || 0; const badge = $('.badge', b);
     badge.hidden = !n; badge.textContent = n > 99 ? '99+' : String(n);
-    const st = L.popped.includes(id) ? ' — in its own window' : status[id] === 'sleeping' ? ' — sleeping' : L.alive.includes(id) && !vis.includes(id) ? ' — in background' : '';
-    const k = SV.findIndex((s) => s.id === id);
-    b.title = `${BY[id].name}${st}${k < 9 ? `  (Ctrl+${k + 1})` : ''}${L.alive.includes(id) ? ' · middle-click to close' : ''}`;
+    const sp = L.splits.find((x) => leaves(x.tile).includes(id));
+    const st = L.popped.includes(id) ? ' · in its own window' : status[id] === 'sleeping' ? ' · sleeping' : sp ? ` · in a split with ${leaves(sp.tile).filter((x) => x !== id).map((x) => BY[x]?.name).join(', ')}` : L.alive.includes(id) && !vis.includes(id) ? ' · open in the background' : '';
+    b.title = `${s.name}${st}${k < 9 ? `  (Ctrl+${k + 1})` : ''}${L.alive.includes(id) ? ' · middle-click to close' : ''}`;
+  });
+  for (const f of FILES) {
+    const b = sideBtns.get(f.id); if (!b) continue;
+    b.classList.toggle('visible', vis.includes(f.id) && !home);
+    b.classList.toggle('focused', f.id === L.focused && !home && !settingsOpen);
+    b.classList.toggle('popped', L.popped.includes(f.id));
+    b.title = `${f.name}${L.popped.includes(f.id) ? ' · in its own window' : ''}`;
   }
-  $('#brand .home').classList.toggle('active', showHome() && !settingsOpen);
+  // remembered splits (and the one on screen), as combo tiles
+  const cur = L.mode === 'tile' && visible().length > 1 ? [{ tile: L.tile, focused: L.focused, current: true }] : [];
+  const all = [...cur, ...L.splits];
+  const sig = all.map((s) => `${s.current ? '*' : ''}${leaves(s.tile).join('+')}`).join('|') + (home ? 'H' : '');
+  const box2 = $('#splits');
+  if (box2.dataset.sig !== sig) {
+    box2.dataset.sig = sig;
+    box2.replaceChildren(h('div', { class: 'nav-h' }, 'Splits'), ...all.map((s) => {
+      const ids = leaves(s.tile);
+      const b = h('button', { class: `svc split-btn${s.current && !home ? ' focused visible' : ''}`, title: `${s.current ? 'On screen: ' : 'Split: '}${splitTitle(s)}`, 'aria-label': `Split: ${splitTitle(s)}` },
+        `<span class="tile combo">${ids.slice(0, 3).map((id) => `<i data-c="${esc(BY[id]?.color || '#999')}">${BY[id] ? glyph(BY[id]) : ''}</i>`).join('')}</span><span class="lbl"></span>`);
+      $('.lbl', b).textContent = s.current ? `${splitTitle(s)} (on screen)` : splitTitle(s);
+      b.onclick = () => { if (s.current) { homeOpen = false; if (settingsOpen) toggleSettings(false); render(); } else openPane(s.focused); };
+      paint(b);
+      return b;
+    }));
+  }
+  box2.hidden = !all.length;
+  $('#brand .home').classList.toggle('focused', home && !settingsOpen);
+  $('#brand .home').classList.toggle('visible', home && !settingsOpen);
   $('#setBtn').classList.toggle('active', settingsOpen);
 }
 
 // ---------- layout menu ----------
 function toggleMenu(force, viaKeyboard = false) {
   menuOpen = force ?? !menuOpen;
-  if (menuOpen && dlOpen) toggleDownloads(false);
+  if (menuOpen) { if (dlOpen) toggleDownloads(false); closePopover(); }
   const m = $('#menu');
   m.hidden = !menuOpen;
   $('#layoutsBtn').setAttribute('aria-expanded', String(menuOpen));
   if (menuOpen) {
     const n = visible().length;
-    m.innerHTML = `<h4>Arrange</h4><div class="grid">${PRESETS.map((p) => `<button class="preset${p.n === n ? ' fits' : ''}" data-p="${p.id}" title="${p.name} — ${p.n} pane${p.n > 1 ? 's' : ''}">${presetThumb(p)}<span>${p.name}</span></button>`).join('')}</div>
+    m.innerHTML = `<h4>Arrange open apps</h4><div class="grid">${PRESETS.map((p) => `<button class="preset${p.n === n ? ' fits' : ''}" data-p="${p.id}" title="${p.name}, ${p.n} app${p.n > 1 ? 's' : ''}">${presetThumb(p)}<span>${p.name}</span></button>`).join('')}</div>
       <div class="row" title="Ctrl+Shift+F switches"><button class="btn small" data-m="tile"${L.mode === 'tile' ? ' aria-pressed="true"' : ''}>${btnSvg('tile')}Tiled</button><button class="btn small" data-m="free"${L.mode === 'free' ? ' aria-pressed="true"' : ''}>${btnSvg('free')}Free-floating</button></div>`;
     m.querySelectorAll('[data-p]').forEach((b) => (b.onclick = () => { toggleMenu(false); applyPreset(PRESETS.find((p) => p.id === b.dataset.p)); }));
     m.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { toggleMenu(false); if (L.mode !== b.dataset.m) toggleMode(); }));
@@ -376,80 +481,106 @@ function toggleMenu(force, viaKeyboard = false) {
   }
   render();
 }
+
+// ---------- popovers (split with…, screenshot) and overlays (Ctrl+K, shortcuts, screenshot result) ----------
+function openPopover(anchor, html, onPick) {
+  if (menuOpen) toggleMenu(false);
+  if (dlOpen) toggleDownloads(false);
+  const p = $('#popover');
+  p.innerHTML = html; p.hidden = false; popoverOpen = true;
+  const r = anchor.getBoundingClientRect(); const pw = p.offsetWidth; const ph = p.offsetHeight;
+  const side = !!anchor.closest('#sidebar'); // sidebar tools open to the right, header buttons drop down
+  p.style.left = `${clamp(side ? r.right + 10 : r.right - pw, 8, innerWidth - pw - 8)}px`;
+  p.style.top = `${clamp(side ? r.bottom - ph : r.bottom + 6, 8, innerHeight - ph - 8)}px`;
+  p.onclick = (e) => { const b = e.target.closest('[data-pick]'); if (b) { closePopover(); onPick(b.dataset.pick); } };
+  render();
+  $('button', p)?.focus();
+}
+function closePopover() { if (!popoverOpen) return; popoverOpen = false; $('#popover').hidden = true; render(); }
+function openSplitMenu(id, anchor) {
+  const at = anchor || paneEls.get(id)?.querySelector('[data-a="split"]');
+  const vis = visible();
+  const choices = [...SV, ...FILES].filter((s) => !vis.includes(s.id) && !L.popped.includes(s.id));
+  if (!at) return;
+  openPopover(at, `<h4>Show beside ${esc(BY[id].name)}</h4>${choices.length ? `<div class="pick-list">${choices.map((s) => `<button data-pick="${esc(s.id)}" data-c="${esc(s.color)}"><span class="mini">${glyph(s)}</span>${esc(s.name)}</button>`).join('')}</div>` : '<p class="muted">Every app is already on screen.</p>'}<p class="hint">Or drag an app from the sidebar onto the page.</p>`, (pick) => splitWith(id, pick));
+  paint($('#popover'));
+}
+function openShotMenu(anchor, paneId = null) {
+  const f = paneId ? BY[paneId] : L.focused && shown().includes(L.focused) && !showHome() ? BY[L.focused] : null;
+  openPopover(anchor, `<h4>Screenshot</h4><div class="pick-list">${f ? `<button data-pick="app">${btnSvg('camera')}Just ${esc(f.name)}</button>` : ''}<button data-pick="area">${btnSvg('crop')}Select an area…</button>${paneId ? '' : `<button data-pick="all">${btnSvg('camera')}Everything on screen<kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>S</kbd></button>`}<button data-pick="folder">${btnSvg('folder')}Open screenshots folder</button></div>`,
+    (pick) => (pick === 'folder' ? hub.app('shots-folder') : pick === 'area' ? pickArea(f?.id) : takeShot(pick, f?.id)));
+}
+function showOverlay(html) {
+  if (menuOpen) toggleMenu(false);
+  closePopover(); if (dlOpen) toggleDownloads(false);
+  const o = $('#overlay');
+  o.innerHTML = `<div class="ov-back" data-act="close-overlay"></div>${html}`; o.hidden = false; overlayOpen = true;
+  paint(o);
+  o.onclick = (e) => { if (e.target.closest('[data-act="close-overlay"]')) closeOverlay(); };
+  render();
+  return o;
+}
+function closeOverlay() { if (!overlayOpen) return; overlayOpen = false; const o = $('#overlay'); o.hidden = true; o.innerHTML = ''; o.className = ''; render(); }
 document.addEventListener('pointerdown', (e) => {
   if (menuOpen && !e.target.closest('#menu, #layoutsBtn')) toggleMenu(false);
   if (dlOpen && !e.target.closest('#downloads, #dlBtn')) toggleDownloads(false);
+  if (popoverOpen && !e.target.closest('#popover')) closePopover();
 });
 
-// ---------- start screen ----------
-const pick = new Set();
-let pickPreset = null;
-function greeting() { const hr = new Date().getHours(); return hr < 5 ? 'Working late' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; }
-function renderHome() {
-  const el = $('#home');
-  if (!el.dataset.built) {
-    el.dataset.built = '1';
-    el.innerHTML = `
-      <div class="home-inner">
-        <div class="hello"><span class="mark">${svg(MARK, MARK_VB, 'none')}</span><div><h1></h1><p>Pick what you need for class. You can rearrange everything later.</p></div></div>
-        <div class="picker" role="group" aria-label="Apps to open"></div>
-        <div class="arrange"><span class="lbl">Arrange as</span><div class="presets" role="radiogroup" aria-label="Layout"></div></div>
-        <div class="cta"><button class="btn primary big" id="openBtn"></button><button class="btn big" id="restoreBtn">Restore last workspace</button><button class="btn big" id="backBtn">Back to workspace</button></div>
-        ${KEYS_HTML}
-      </div>`;
-    SV.forEach((svc, i) => {
-      const b = h('button', { class: 'pick', 'aria-pressed': 'false' }, `<span class="tile">${glyph(svc)}</span><span class="nm"></span><span class="k">${i < 9 ? `Ctrl ${i + 1}` : ''}</span><span class="tick">${svg(S16('M3.5 8.5l3 3 6-7'), '0 0 16 16', 'none')}</span>`);
-      b.style.setProperty('--svc', svc.color);
-      $('.nm', b).textContent = svc.name;
-      b.onclick = () => { if (pick.has(svc.id)) pick.delete(svc.id); else pick.add(svc.id); pickPreset = null; renderHome(); };
-      b.ondblclick = () => { pick.clear(); pick.add(svc.id); openPicked(); };
-      b.dataset.id = svc.id;
-      $('.picker', el).append(b);
-    });
-    $('#openBtn', el).onclick = openPicked;
-    $('#restoreBtn', el).onclick = restoreLast;
-    $('#backBtn', el).onclick = () => { homeOpen = false; render(); };
-    for (const id of [...pick]) if (!BY[id] || BY[id].hidden) pick.delete(id);
-    if (!pick.size) (last?.alive?.length ? last.alive : visible().length ? visible() : ['ebwise', 'teams']).filter((id) => BY[id] && !BY[id].hidden).forEach((id) => pick.add(id));
+// ---------- Today ----------
+function showToday(open = true) {
+  if (settingsOpen) toggleSettings(false);
+  closeOverlay();
+  homeOpen = open || !visible().length;
+  render();
+}
+
+// ---------- screenshots ----------
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+async function composeShot({ shell, views }) { // web views aren't part of the shell's own capture: paint each where it sits
+  const base = await loadImg(shell); const k = base.naturalWidth / innerWidth;
+  const c = document.createElement('canvas'); c.width = base.naturalWidth; c.height = base.naturalHeight;
+  const ctx = c.getContext('2d'); ctx.drawImage(base, 0, 0);
+  for (const v of views) {
+    const img = await loadImg(v.url);
+    ctx.save(); ctx.beginPath(); ctx.roundRect(v.x * k, v.y * k, v.width * k, v.height * k, [0, 0, 8 * k, 8 * k]); ctx.clip();
+    ctx.drawImage(img, v.x * k, v.y * k, v.width * k, v.height * k); ctx.restore();
   }
-  $('h1', el).textContent = greeting();
-  el.querySelectorAll('.pick').forEach((b) => b.setAttribute('aria-pressed', String(pick.has(b.dataset.id))));
-  const n = pick.size;
-  const fits = PRESETS.filter((p) => p.n === n);
-  if (!fits.some((p) => p.id === pickPreset)) pickPreset = DEFAULT_PRESET[n] || null;
-  $('.arrange', el).hidden = fits.length < 2;
-  $('.presets', el).innerHTML = fits.map((p) => `<button class="preset" role="radio" aria-checked="${p.id === pickPreset}" data-p="${p.id}">${presetThumb(p)}<span>${p.name}</span></button>`).join('');
-  el.querySelectorAll('.presets [data-p]').forEach((b) => (b.onclick = () => { pickPreset = b.dataset.p; renderHome(); }));
-  const ob = $('#openBtn', el);
-  ob.disabled = !n;
-  ob.textContent = n ? `Open ${n === 1 ? BY[[...pick][0]].name : `${n} apps`}` : 'Pick at least one app';
-  const hasPanes = visible().length > 0;
-  $('#restoreBtn', el).hidden = hasPanes || !last || !(last.alive || []).some((id) => BY[id] && !BY[id].hidden);
-  $('#backBtn', el).hidden = !hasPanes;
+  return c.toDataURL('image/png');
 }
-function openPicked() {
-  const ids = SV.map((s) => s.id).filter((id) => pick.has(id));
-  if (!ids.length) return;
-  const p = PRESETS.find((x) => x.id === pickPreset) || PRESETS.find((x) => x.id === DEFAULT_PRESET[ids.length]);
-  // keep the user's picks, put the previously focused one in the main slot
-  const order = uniq([...(ids.includes(L.focused) ? [L.focused] : []), ...ids]);
-  homeOpen = false;
-  L.mode = 'tile'; L.zoomed = null;
-  L.tile = p.build(order);
-  L.alive = uniq([...order, ...L.alive]);
-  L.popped = L.popped.filter((id) => !order.includes(id));
-  L.focused = order[0];
-  commit();
+async function takeShot(kind, forceId = null) {
+  closeOverlay(); closePopover(); if (menuOpen) toggleMenu(false); if (dlOpen) toggleDownloads(false); if (settingsOpen) toggleSettings(false);
+  render();
+  await new Promise((r) => setTimeout(r, 200)); // let the web views come back from under the menu
+  const id = forceId && shown().includes(forceId) ? forceId : L.focused && shown().includes(L.focused) && !showHome() ? L.focused : null;
+  showNotice({ id: 'shot', kind: 'busy', title: 'Taking a screenshot…' });
+  if (kind === 'app' && !id) { showShotResult({ error: 'Open an app first, then take its screenshot.' }); return; }
+  const rect = id && R[id] ? { x: box.left + R[id].x, y: box.top + R[id].y + HEADER, width: R[id].w, height: R[id].h - HEADER } : null;
+  let r = await hub.capture(kind, id, rect);
+  let thumb = null;
+  if (r?.compose) { thumb = await composeShot(r.compose); r = await hub.saveShot(thumb); }
+  showShotResult(r || { error: 'The screenshot didn’t work. Try again.' }, thumb);
 }
-function restoreLast() {
-  if (!last) return;
-  homeOpen = false;
-  let tile = last.tile;
-  for (const id of L.popped) tile = removeLeaf(tile, id);
-  Object.assign(L, { mode: last.mode === 'free' ? 'free' : 'tile', tile, free: (last.free || []).filter((p) => !L.popped.includes(p.id)), zoomed: null });
-  L.alive = uniq([...(last.alive || []).filter((id) => BY[id] && !BY[id].hidden), ...L.alive]);
-  commit();
+function showShotResult(r, thumb) {
+  if (r.error) { showNotice({ id: 'shot', kind: 'error', title: 'No screenshot', detail: r.error }); showOverlay(`<div class="shot-sheet" role="alertdialog"><div class="ed-head"><h3>No screenshot</h3><button class="hbtn" data-act="close-overlay" aria-label="Close">${btnSvg('close')}</button></div><p>${esc(r.error)}</p></div>`); return; }
+  const s = r.shot;
+  showNotice({ id: 'shot', kind: s.copied || !SET.screenshotCopy ? 'success' : 'error', title: s.copied ? 'Screenshot saved and copied' : SET.screenshotCopy ? 'Screenshot saved, but not copied' : 'Screenshot saved',
+    detail: s.copied ? 'Ready to paste.' : SET.screenshotCopy ? 'Copying to the clipboard didn’t work. Open it and copy it from there.' : s.name,
+    actions: [{ label: 'Open beside', run: () => hub.shotAction(s.id, 'view', 'beside') }, { label: 'Show in folder', run: () => hub.shotAction(s.id, 'show') }] });
+  SHOTS = [s, ...SHOTS.filter((x) => x.id !== s.id)].slice(0, 10);
+  const o = showOverlay(`<div class="shot-sheet" role="dialog" aria-label="Screenshot saved">
+    <div class="ed-head"><h3>Screenshot saved</h3><button class="hbtn" data-act="close-overlay" aria-label="Close">${btnSvg('close')}</button></div>
+    ${thumb || s.thumb ? '<img class="shot-img" alt="Screenshot preview">' : ''}
+    <p class="muted">${s.copied ? 'Copied to your clipboard, ready to paste. ' : ''}Saved as <b></b></p>
+    <div class="actions left"><button class="btn primary" data-how="beside">${btnSvg('split')}Open beside</button><button class="btn" data-how="full">${btnSvg('zoom')}Full screen</button><button class="btn" data-how="window">${btnSvg('popout')}Pop out</button><button class="btn" data-how="show">${btnSvg('folder')}Show in folder</button></div></div>`);
+  $('b', o).textContent = s.name;
+  const img = $('.shot-img', o); if (img) img.src = s.thumb || thumb;
+  o.querySelectorAll('[data-how]').forEach((b) => (b.onclick = () => { closeOverlay(); if (b.dataset.how === 'show') hub.shotAction(s.id, 'show'); else hub.shotAction(s.id, 'view', b.dataset.how); }));
+  $('[data-how="beside"]', o).focus();
 }
+
+// ---------- one-time tip ----------
+function dismissTip() { tipPane = null; store.set('tipSplit', true); render(); }
 
 // ---------- actions ----------
 function focusPane(id) {
@@ -458,28 +589,49 @@ function focusPane(id) {
   if (L.mode === 'free') { const i = L.free.findIndex((p) => p.id === id); if (i >= 0) L.free.push(...L.free.splice(i, 1)); }
   commit();
 }
+// The split on screen is put aside (remembered) before something else takes the screen.
+function stashCurrent() {
+  if (L.mode !== 'tile' || leaves(L.tile).length < 2) return;
+  L.splits = [{ tile: L.tile, focused: L.focused }, ...L.splits];
+}
 function openPane(id, at) {
   if (!BY[id] || BY[id].hidden) return;
   homeOpen = false;
   if (settingsOpen) toggleSettings(false);
-  if (L.popped.includes(id)) { hub.focusView(id); return; }
+  closeOverlay();
+  if (L.popped.includes(id)) { hub.focusView(id); render(); return; }
   if (visible().includes(id)) { if (L.zoomed && L.zoomed !== id) L.zoomed = id; focusPane(id); hub.focusView(id); render(); return; }
-  L.zoomed = null;
-  if (L.mode === 'tile') {
-    const target = visible().includes(L.focused) ? L.focused : visible().at(-1);
-    const r = R[target];
-    L.tile = target ? insertAt(L.tile, target, id, r && r.w < r.h * 1.1 ? 'bottom' : 'right') : leaf(id);
-  } else {
+  if (L.mode === 'free') {
     const W = stage.clientWidth || 1; const Hh = stage.clientHeight || 1;
     const base = L.free.find((p) => p.id === L.focused);
     const x = at ? ((at.x - 120) / W) * 100 : base ? base.x + 3 : 6 + L.free.length * 3;
     const y = at ? ((at.y - 14) / Hh) * 100 : base ? base.y + 4 : 6 + L.free.length * 4;
     L.free.push({ id, x: clamp(x, 0, 60), y: clamp(y, 0, 60), w: 46, h: 62 });
+  } else {
+    const sp = L.splits.find((s) => leaves(s.tile).includes(id));
+    const hadOne = visible().length === 1;
+    stashCurrent();
+    if (sp) { L.splits = L.splits.filter((s) => s !== sp); L.tile = sp.tile; } else L.tile = leaf(id);
+    L.zoomed = null;
+    if (!sp && hadOne && !store.get('tipSplit') && !tipPane) tipPane = id; // switching apps one at a time: say once that splitting exists
   }
   L.alive = uniq([...L.alive, id]);
   L.focused = id;
   commit();
   hub.focusView(id);
+}
+function splitWith(target, id) { // show `id` to the right of `target`
+  if (!BY[id]) return;
+  homeOpen = false; if (settingsOpen) toggleSettings(false);
+  if (L.mode === 'free' || !visible().includes(target)) { L.popped = L.popped.filter((x) => x !== id); openPane(id); return; }
+  L.zoomed = null;
+  applyDrop(id, { kind: 'side', id: target, side: 'right' });
+}
+function openFileCmd({ id, how } = {}) {
+  if (!BY[id]) return;
+  if (how === 'window') { homeOpen = false; L.alive = uniq([...L.alive, id]); if (!L.popped.includes(id)) { removeEverywhere(id); L.popped.push(id); } commit(); return; }
+  const target = visible().includes(L.focused) ? L.focused : visible()[0];
+  if (how === 'full' || !target || visible().includes(id)) openPane(id); else splitWith(target, id);
 }
 function removeEverywhere(id) {
   L.tile = removeLeaf(L.tile, id);
@@ -494,6 +646,7 @@ function closePane(id = L.focused) {
   L.alive = L.alive.filter((x) => x !== id);
   delete status[id]; delete unread[id]; delete statusInfo[id];
   paneEls.get(id)?.remove(); paneEls.delete(id);
+  if (tipPane === id) tipPane = null;
   const rest = visible();
   L.focused = rest[Math.min(Math.max(i, 0), rest.length - 1)] ?? null;
   commit();
@@ -507,11 +660,13 @@ function popOut(id = L.focused) {
 function dock(id) {
   if (!L.popped.includes(id)) return;
   L.popped = L.popped.filter((x) => x !== id);
-  L.alive = L.alive.filter((x) => x !== id); // re-added by openPane
-  openPane(id);
+  // back next to what's on screen (it was popped out of a split, most likely)
+  const target = visible().includes(L.focused) ? L.focused : visible()[0];
+  if (target && L.mode === 'tile') applyDrop(id, { kind: 'side', id: target, side: 'right' }); else { L.alive = L.alive.filter((x) => x !== id); openPane(id); }
 }
 function toggleZoom(id = L.focused) {
   if (!id || !visible().includes(id)) return;
+  if (!L.zoomed && visible().length < 2) return; // nothing to zoom away from
   L.zoomed = L.zoomed === id ? null : id; L.focused = id;
   commit();
 }
@@ -523,8 +678,9 @@ function cycle(dir) {
   focusPane(id); hub.focusView(id);
 }
 function applyPreset(p) {
-  const order = uniq([...visible(), ...L.alive.filter((id) => !L.popped.includes(id)), ...SV.map((s) => s.id)]).slice(0, p.n);
+  const order = uniq([...visible(), ...L.alive.filter((id) => !L.popped.includes(id) && BY[id] && !BY[id].hidden), ...SV.map((s) => s.id)]).slice(0, p.n);
   homeOpen = false;
+  if (p.n > 1) store.set('tipSplit', true);
   L.mode = 'tile'; L.zoomed = null;
   L.tile = p.build(order);
   L.alive = uniq([...L.alive, ...order]);
@@ -591,7 +747,7 @@ function startDivider(e, el) {
   document.body.classList.add('resizing', d.dir === 'h' ? 'col' : 'row');
   const total = d.dir === 'h' ? d.w : d.h; const origin = d.dir === 'h' ? d.x : d.y;
   const before = sum(n.sizes.slice(0, d.i - 1)); const pair = n.sizes[d.i - 1] + n.sizes[d.i];
-  const min = Math.min(MIN_TILE / total, pair / 2 - 0.001);
+  const min = Math.min(scaled(MIN_TILE) / total, pair / 2 - 0.001);
   const move = (ev) => {
     const p = ((d.dir === 'h' ? ev.clientX - box.left : ev.clientY - box.top) - origin) / total;
     let a = clamp(p - before, min, pair - min);
@@ -669,7 +825,7 @@ function startResize(e, id, edge) {
 
 // ---------- drag to dock (header in tile mode, or a sidebar icon) ----------
 function headerDown(e, id) {
-  if (e.button !== 0 || e.target.closest('.hbtn')) return;
+  if (e.button !== 0 || e.target.closest('.hbtn, .tip-x')) return;
   focusPane(id);
   if (L.mode === 'free' && !L.zoomed) startMove(e, id); else armDrag(e, id);
 }
@@ -725,7 +881,8 @@ function hitTest(px, py, src) {
 }
 function applyDrop(id, hit, at) {
   homeOpen = false;
-  if (L.popped.includes(id) || (visible().includes(id) && (hit.kind === 'free' || hit.kind === 'empty'))) { render(); return; } // popped panes come back with Ctrl+Shift+O or by closing their window
+  if (visible().includes(id) && (hit.kind === 'free' || hit.kind === 'empty')) { render(); return; }
+  L.popped = L.popped.filter((x) => x !== id); // dropping a popped-out app onto the screen brings it back in
   if (hit.kind === 'free' || (hit.kind === 'empty' && (L.mode === 'free' || visible().length))) { openPane(id, L.mode === 'free' ? at : undefined); return; }
   const wasVisible = visible().includes(id);
   let t = L.tile;
@@ -737,6 +894,7 @@ function applyDrop(id, hit, at) {
     if (wasVisible) t = removeLeaf(t, id);
     t = hit.kind === 'root' ? insertRoot(t, id, hit.side) : insertAt(t, hit.id, id, hit.side);
     L.zoomed = null;
+    store.set('tipSplit', true); tipPane = null; // they know how to split now
   }
   L.tile = normalize(t);
   L.alive = uniq([...L.alive, id]);
@@ -754,7 +912,7 @@ hub.onStatus(({ id, status: st, ...info }) => {
   updateSidebar();
   if (was !== blocked(id)) queueBounds();
 });
-hub.onUnread(({ id, n }) => { if (BY[id]) { unread[id] = n; updateSidebar(); } });
+hub.onUnread(({ id, n }) => { if (BY[id]) { unread[id] = n; updateSidebar(); if (showHome()) renderToday(); } });
 hub.onFocused((id) => { if (visible().includes(id)) focusPane(id); });
 hub.onCmd(({ name, arg }) => {
   if (name === 'open') openPane(arg);
@@ -765,40 +923,53 @@ hub.onCmd(({ name, arg }) => {
   else if (name === 'mode') toggleMode();
   else if (name === 'preset') nextPreset();
   else if (name === 'cycle') cycle(arg);
-  else if (name === 'home') { if (settingsOpen) toggleSettings(false); homeOpen = !homeOpen || !visible().length; render(); }
+  else if (name === 'home') showToday(!(showHome() && !settingsOpen) || !visible().length);
   else if (name === 'settings') toggleSettings(true);
   else if (name === 'downloads') toggleDownloads();
   else if (name === 'find') findIn(arg);
+  else if (name === 'switcher') { if (overlayOpen) closeOverlay(); else openSwitcher(); }
+  else if (name === 'help') openHelp();
+  else if (name === 'shot') { if (arg === 'area') pickArea(); else takeShot(arg === 'app' ? 'app' : 'all'); }
+  else if (name === 'open-file') openFileCmd(arg);
 });
 function findIn(id) {
-  if (!BY[id] || L.popped.includes(id)) return;
+  if (!BY[id] || L.popped.includes(id) || isLocal(id)) return;
   if (settingsOpen) toggleSettings(false);
   if (!shown().includes(id)) openPane(id);
   homeOpen = false; render();
-  paneEls.get(id)?._find.open();
+  paneEls.get(id)?._find?.open();
 }
-hub.onFound((r) => paneEls.get(r.id)?._find.found(r));
-hub.onDownload(onDownload);
+hub.onFound((r) => paneEls.get(r.id)?._find?.found(r));
+hub.onDownload((d) => { onDownload(d); if (showHome() && d.state !== 'progressing') renderToday(); });
 hub.onSettings((p) => applyPayload(p));
+hub.onPlanner((p) => plannerUpdated(p));
+// Timetable/Tasks data changed (here, in a pop-out, or in main): redraw everything that shows it.
+plannerListeners.add(() => {
+  for (const el of paneEls.values()) el._view?.render();
+  updateSidebar();
+  if (showHome()) renderToday();
+});
 // Settings or the app list changed in main: adopt its (validated) apps, settings and layout.
+const svcSig = () => ALL.map((s) => `${s.id}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.hidden}`).join();
 function applyPayload(p) {
-  const before = ALL.map((s) => `${s.id}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.hidden}`).join();
-  ALL = p.services; SV = ALL.filter((s) => !s.hidden); BY = Object.fromEntries(ALL.map((x) => [x.id, x]));
-  SET = p.settings; META = { version: p.version, autostart: p.autostart, defaultDownloadDir: p.defaultDownloadDir };
+  const before = svcSig();
+  ALL = p.services; APPS = ALL.filter((s) => s.kind !== 'file'); SV = APPS.filter((s) => !s.hidden); FILES = ALL.filter((s) => s.kind === 'file');
+  BY = Object.fromEntries(ALL.map((x) => [x.id, x]));
+  SET = p.settings; META = { version: p.version, autostart: p.autostart, defaultDownloadDir: p.defaultDownloadDir, defaultShotDir: p.defaultShotDir };
+  const ws = WEEK_START; WEEK_START = SET.weekStart;
   if (p.layout) Object.assign(L, p.layout);
-  for (const [id, el] of paneEls) if (!L.alive.includes(id)) { el.remove(); paneEls.delete(id); }
-  if (before !== ALL.map((s) => `${s.id}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.hidden}`).join()) {
-    buildSidebar();
-    $('#home').dataset.built = '';
-    for (const [id, el] of paneEls) { el.remove(); paneEls.delete(id); } // re-created with the new name/icon
-  }
+  for (const [id, el] of paneEls) if (!L.alive.includes(id) || !BY[id]) { el.remove(); paneEls.delete(id); }
+  if (before !== svcSig()) buildSidebar(); // panes re-create themselves if their own name/icon changed
+  if (ws !== WEEK_START) plannerUpdated();
   if (settingsOpen) renderSettings();
   render();
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  if (dlOpen) toggleDownloads(false);
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (overlayOpen) closeOverlay();
+  else if (popoverOpen) closePopover();
+  else if (dlOpen) toggleDownloads(false);
   else if (settingsOpen) { if (e.target.closest?.('.app-form')) return; toggleSettings(false); }
   else if (menuOpen) toggleMenu(false);
   else if (homeOpen && visible().length) { homeOpen = false; render(); }
@@ -806,17 +977,25 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('online', () => { hub.retryFailed(); for (const id of Object.keys(status)) if (status[id] === 'error') renderStatus(id); });
 window.addEventListener('offline', () => { for (const id of Object.keys(status)) if (status[id] === 'error') renderStatus(id); });
 new ResizeObserver(() => render()).observe(stage);
+// once a minute: countdowns on Today, the timetable's "now" line, and the day rolling over for task badges
+setInterval(() => {
+  const typing = document.activeElement?.matches?.('#home input');
+  if (showHome() && !typing && !overlayOpen) renderToday();
+  for (const el of paneEls.values()) el._view?.tick?.();
+  updateSidebar();
+}, 30e3);
 
 hub.init().then((s) => {
-  last = s.last;
   Object.assign(status, s.status); Object.assign(unread, s.unread);
   for (const d of s.downloads) DL.set(d.id, d);
+  SHOTS = s.shots || [];
+  PL = s.planner;
   $('#downloads').addEventListener('click', onDownloadsClick);
   applyPayload(s); // apps, settings, layout; builds the sidebar
   commit(); // also re-opens popped-out windows
   renderDlButton();
   if (s.openSettings) toggleSettings(true);
 }).catch((e) => {
-  document.body.innerHTML = `<div class="fatal"><h1>WakeUp couldn’t start its layout</h1><p></p><p>Quit from the tray and open it again. Details are in ~/.config/WakeUp/logs.</p></div>`;
+  document.body.innerHTML = '<div class="fatal"><h1>WakeUp couldn’t start</h1><p></p><p>Quit from the tray and open it again. Details are in ~/.config/WakeUp/logs.</p></div>';
   $('.fatal p').textContent = String(e && e.message || e);
 });

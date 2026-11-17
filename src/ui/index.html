@@ -2,27 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'">
   <title>WakeUp</title>
   <link rel="stylesheet" href="ui.css">
 </head>
 <body>
   <nav id="sidebar" aria-label="Apps">
     <div id="brand"></div>
-    <div id="services"></div>
-    <div class="spacer"></div>
+    <div id="navlist">
+      <div class="nav-h">Apps</div>
+      <div id="services"></div>
+      <div id="splits" hidden></div>
+      <div id="files" hidden></div>
+    </div>
+    <div id="notices" aria-live="polite" hidden></div>
     <div id="tools"></div>
   </nav>
   <main id="stage">
-    <section id="home" aria-label="Start" hidden></section>
+    <section id="home" aria-label="Today" hidden></section>
     <section id="settings" aria-label="Settings" hidden></section>
     <div id="dropzone" hidden></div>
   </main>
   <div id="menu" role="menu" aria-label="Layouts" hidden></div>
+  <div id="popover" hidden></div>
   <div id="downloads" role="dialog" aria-label="Downloads" hidden></div>
+  <div id="overlay" hidden></div>
   <div id="ghost" hidden></div>
+  <script src="common.js"></script>
+  <script src="planner-core.js"></script>
   <script src="find.js"></script>
   <script src="settings.js"></script>
+  <script src="tasks.js"></script>
+  <script src="timetable.js"></script>
+  <script src="today.js"></script>
+  <script src="switcher.js"></script>
+  <script src="notify.js"></script>
+  <script src="shotarea.js"></script>
   <script src="ui.js"></script>
 </body>
 </html>

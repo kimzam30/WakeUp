@@ -1,24 +1,35 @@
 'use strict';
-/* global hub, $, h, svg, S16, btnSvg, esc, glyph, ALL, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML */
+/* global hub, $, h, svg, S16, btnSvg, esc, glyph, APPS, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML, closePopover, closeOverlay */
 // Settings page (Ctrl+,) and Downloads panel (Ctrl+J). Every change goes to main, which validates,
 // applies and sends the result back through applyPayload().
 
 // ---------- settings ----------
-const SECTIONS = [['general', 'General'], ['apps', 'Apps'], ['performance', 'Performance'], ['downloads', 'Downloads'], ['links', 'Links'], ['appearance', 'Appearance'], ['about', 'About']];
+const SECTIONS = [['general', 'General'], ['apps', 'Apps'], ['timetable', 'Timetable'], ['performance', 'Performance'], ['downloads', 'Downloads & screenshots'], ['links', 'Links & documents'], ['appearance', 'Appearance'], ['about', 'About']];
 let setTab = 'general';
 let appForm = null; // null | {id?, name, url, color, own, error}
 let confirmRemove = null; // custom app id waiting for confirmation
+const AI_PRESETS = [ // a starting point; any AI that works in a browser can be added with 'Other'
+  ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
+  ['Copilot', 'https://copilot.microsoft.com/', '#2b63d9'], ['Perplexity', 'https://www.perplexity.ai/', '#20808d'], ['DeepSeek', 'https://chat.deepseek.com/', '#4d6bfe'],
+  ['Grok', 'https://grok.com/', '#1f1f1e'], ['Le Chat', 'https://chat.mistral.ai/', '#fa520f'],
+];
+const nextName = (base) => { const names = new Set(SET.customApps.map((c) => c.name)); if (!names.has(base)) return base; let n = 2; while (names.has(`${base} ${n}`)) n++; return `${base} ${n}`; };
 
 function toggleSettings(open = !settingsOpen) {
   settingsOpen = open;
   if (open && dlOpen) toggleDownloads(false);
   if (open && menuOpen) toggleMenu(false);
+  if (open) { closePopover(); closeOverlay(); }
   $('#settings').hidden = !open;
   if (open) { renderSettings(); $(`#settings .set-nav [data-tab="${setTab}"]`)?.focus(); }
   render();
 }
 async function save(patch) {
-  try { applyPayload(await hub.setSettings(patch)); } catch (e) { console.error('settings not saved', e); }
+  try { applyPayload(await hub.setSettings(patch)); return true; } catch (e) {
+    console.error('settings not saved', e);
+    showNotice({ id: 'settings-save', kind: 'error', title: 'That setting didn’t save', detail: 'Try again. If it keeps happening, the log folder (Settings, About) has details.' });
+    return false;
+  }
 }
 
 const row = (title, desc, control = '') => `<div class="set-row"><div class="set-text"><div class="set-title">${title}</div>${desc ? `<div class="set-desc">${desc}</div>` : ''}</div>${control ? `<div class="set-ctl">${control}</div>` : ''}</div>`;
@@ -30,30 +41,32 @@ const group = (title, body) => `<section class="set-group">${title ? `<h2>${titl
 function sectionHtml(tab) {
   const S = SET;
   if (tab === 'general') {
-    return group('Starting up',
+    return group('You',
+      row('Your nickname', 'WakeUp greets you with it on the Today screen and in class reminders.', `<form class="nick-set" data-form="nickname" autocomplete="off"><input class="text-in" name="nickname" maxlength="30" placeholder="e.g. Kim" value="${esc(S.nickname)}" aria-label="Your nickname"><button class="hbtn tick" type="submit" title="Save nickname" aria-label="Save nickname">${btnSvg('check')}</button><span class="save-state" role="status"></span></form>`))
+      + group('Starting up',
       row('Start at login', 'WakeUp opens hidden in the tray when you sign in to your computer.', sw('autostart', META.autostart, 'Start at login'))
       + row('Start hidden in the tray', 'Launch without showing the window. Click the tray icon to bring it up.', sw('startHidden', S.startHidden, 'Start hidden'))
-      + row('At launch, open', 'Pick one app if you usually only need, say, Ebwise.', sel('launch', S.launch, [['last', 'My last workspace'], ['home', 'The start screen'], ...SV.map((s) => [s.id, `${s.name} only`])], 'At launch, open')))
+      + row('At launch, open', 'Pick one app if you usually only need, say, Ebwise.', sel('launch', S.launch, [['last', 'Whatever I had open'], ['home', 'Today'], ...SV.map((s) => [s.id, `${s.name} only`])], 'At launch, open')))
       + group('Closing the window',
         row('When you close the window', S.onClose === 'tray' ? 'WakeUp keeps running in the tray, so mail and Teams notifications still arrive.' : S.onClose === 'minimize' ? 'The window goes to the dock instead of closing.' : 'WakeUp quits completely. You won’t get notifications until you open it again.',
           seg('onClose', S.onClose, [['tray', 'Keep in tray'], ['minimize', 'Minimise'], ['quit', 'Quit']], 'When you close the window')))
       + group('', row('Just one app', 'Right-click WakeUp in the dock and pick an app to open only that app. Everything else stays unloaded.'));
   }
   if (tab === 'apps') {
-    const rows = ALL.map((s, i) => {
+    const rows = APPS.map((s, i) => {
       if (confirmRemove === s.id) {
         return `<div class="app-row confirm" data-id="${esc(s.id)}"><span class="app-ico">${glyph(s)}</span><div class="app-name">Remove ${esc(s.name)}?</div>
           <div class="app-confirm"><button class="btn small danger" data-act="remove-yes">Remove</button>${s.own ? '<button class="btn small danger" data-act="remove-clear">Remove and sign out</button>' : ''}<button class="btn small" data-act="remove-no">Cancel</button></div></div>`;
       }
       return `<div class="app-row${s.hidden ? ' off' : ''}" data-id="${esc(s.id)}">
         <span class="app-ico">${glyph(s)}</span>
-        <div class="app-name"><span>${esc(s.name)}</span>${s.custom ? `<small>${esc(new URL(s.url).host)}${s.own ? '' : ' · Microsoft 365 sign-in'}</small>` : ''}</div>
+        <div class="app-name"><span>${esc(s.name)}</span>${s.custom ? `<small>${s.ai ? 'AI · ' : ''}${esc(new URL(s.url).host)}${s.own ? ' · own sign-in' : ' · Microsoft 365 sign-in'}${s.mic ? ' · microphone' : ''}</small>` : s.kind === 'local' ? '<small>Built into WakeUp · works offline</small>' : ''}</div>
         ${sw(`show:${s.id}`, !s.hidden, `Show ${s.name}`, !s.hidden && SV.length === 1)}
-        ${sw(`bg:${s.id}`, s.keepAlive, `Keep ${s.name} running`)}
-        ${sw(`notify:${s.id}`, SET.notify[s.id] !== false, `${s.name} notifications`)}
+        ${s.kind === 'local' ? '<span></span>' : sw(`bg:${s.id}`, s.keepAlive, `Keep ${s.name} running`)}
+        ${s.id === 'tasks' ? '<span></span>' : sw(`notify:${s.id}`, SET.notify[s.id] !== false, s.id === 'timetable' ? 'Class reminders' : `${s.name} notifications`)}
         <div class="app-move">
           <button class="hbtn" data-act="up" aria-label="Move ${esc(s.name)} up" title="Move up"${i === 0 ? ' disabled' : ''}>${svg(S16('M4 10l4-4 4 4'), '0 0 16 16', 'none')}</button>
-          <button class="hbtn" data-act="down" aria-label="Move ${esc(s.name)} down" title="Move down"${i === ALL.length - 1 ? ' disabled' : ''}>${svg(S16('M4 6l4 4 4-4'), '0 0 16 16', 'none')}</button>
+          <button class="hbtn" data-act="down" aria-label="Move ${esc(s.name)} down" title="Move down"${i === APPS.length - 1 ? ' disabled' : ''}>${svg(S16('M4 6l4 4 4-4'), '0 0 16 16', 'none')}</button>
           ${s.custom ? `<button class="hbtn" data-act="edit" aria-label="Edit ${esc(s.name)}" title="Edit">${svg(S16('M10.5 3.5l2 2L6 12H4v-2zM9 5l2 2'), '0 0 16 16', 'none')}</button><button class="hbtn del" data-act="remove" aria-label="Remove ${esc(s.name)}" title="Remove">${btnSvg('close')}</button>` : ''}
         </div></div>`;
     }).join('');
@@ -64,14 +77,27 @@ function sectionHtml(tab) {
           <label class="wide"><span>Web address</span><input name="url" type="url" placeholder="https://www.notion.so" value="${esc(f.url)}" required></label>
           <label class="color"><span>Colour</span><input name="color" type="color" value="${esc(f.color)}"></label>
         </div>
-        <div class="set-row tight"><div class="set-text"><div class="set-title">Sign-in</div><div class="set-desc">${f.own ? 'This app keeps its own sign-in, separate from everything else.' : 'Uses the Microsoft 365 account you’re signed in with in Outlook and Teams.'}</div></div>
+        ${f.ai ? `<div class="set-row tight"><div class="set-text"><div class="set-title">Microphone</div><div class="set-desc">Lets ${esc(f.name || 'this AI')} hear you for voice chat. It never gets your camera or screen.</div></div><div class="set-ctl">${sw('form-mic', f.mic, 'Allow the microphone')}</div></div>` : ''}
+        <div class="set-row tight"><div class="set-text"><div class="set-title">Sign-in</div><div class="set-desc">${f.own ? `Its own sign-in, separate from everything else.${f.ai ? ' Add the same AI again under another name (say “ChatGPT Work”) to use a second account side by side.' : ''}` : 'Uses the Microsoft 365 account you’re signed in with in Outlook and Teams.'}</div></div>
           <div class="set-ctl">${seg('form-own', f.own ? 'own' : 'm365', [['own', 'Separate'], ['m365', 'Microsoft 365']], 'Sign-in')}</div></div>
         <p class="form-error" role="alert">${esc(f.error || '')}</p>
         <div class="actions left"><button class="btn primary" type="submit">${f.id ? 'Save changes' : 'Add app'}</button><button class="btn" type="button" data-act="form-cancel">Cancel</button></div>
       </form>` : '<button class="btn" data-act="add">+ Add an app</button>';
     return `<section class="set-group"><h2>Your apps</h2><p class="set-lead">Hidden apps disappear from the sidebar and stop running. Order sets their <kbd>Ctrl</kbd> number.</p>
       <div class="set-card apps"><div class="app-row head" aria-hidden="true"><span></span><span></span><span>Show</span><span>Keep running</span><span>Notify</span><span></span></div>${rows}</div></section>
-      <section class="set-group"><h2>Add your own</h2><p class="set-lead">Any website that works in a browser: Notion, ChatGPT, your MMU portal…</p><div class="set-card pad">${form}</div></section>`;
+      <section class="set-group"><h2>AI assistants</h2><p class="set-lead">Pick one to add it. Each one you add has its own sign-in, so you can add the same AI twice for two accounts (for example personal and work).</p>
+        <div class="set-card pad"><div class="ai-grid">${AI_PRESETS.map(([n, u, c]) => `<button class="ai-pick" data-act="add-ai" data-name="${esc(n)}" data-url="${esc(u)}" data-color="${esc(c)}"><span class="ai-dot" data-c="${esc(c)}">${esc(n[0])}</span><span>${esc(n)}</span>${SET.customApps.some((a) => a.url === u) ? '<small>Add another account</small>' : ''}</button>`).join('')}<button class="ai-pick" data-act="add-ai" data-name="" data-url="" data-color="#6b6a67"><span class="ai-dot other">${btnSvg('plus')}</span><span>Other AI…</span></button></div></div></section>
+      <section class="set-group"><h2>Add your own</h2><p class="set-lead">Any website that works in a browser: Notion, your MMU portal, a class forum…</p><div class="set-card pad">${form}</div></section>`;
+  }
+  if (tab === 'timetable') {
+    return group('Reminders',
+      row('Remind me before each class', 'A notification with the venue, or a Join button for online classes. Cancelled classes are skipped.',
+        sel('reminders', S.reminders, [[0, 'Off'], [5, '5 minutes before'], [10, '10 minutes before'], [15, '15 minutes before']], 'Class reminders')))
+      + group('Calendar',
+        row('Weeks start on', '', seg('weekStart', S.weekStart, [[1, 'Monday'], [0, 'Sunday']], 'Weeks start on')))
+      + group('Backup and sharing',
+        row('Export your timetable', 'Save your classes, changes and tasks to a file, to back them up or share the timetable with classmates.', '<button class="btn small" data-act="tt-export">Export…</button>')
+        + row('Import a timetable', 'Replaces your classes with the ones in the file. Your tasks are kept, and any tasks in the file are added.', '<button class="btn small" data-act="tt-import">Import…</button>'));
   }
   if (tab === 'performance') {
     return group('Memory',
@@ -86,12 +112,18 @@ function sectionHtml(tab) {
       row('Save files to', `<code class="path">${esc(dir)}</code>`, `<button class="btn small" data-act="pick-folder">Change…</button>${S.downloadDir ? '<button class="btn small" data-act="reset-folder">Use Downloads</button>' : ''}`)
       + row('Ask where to save each file', 'Otherwise files go straight to the folder above. “Save link as…” in the right-click menu always asks.', sw('askDownload', S.askDownload, 'Ask where to save'))
       + row('Open files when they finish', '', sw('openDownload', S.openDownload, 'Open files when they finish'))
-      + row('Notify me when a download finishes', 'Click the notification to open the file.', sw('notifyDownload', S.notifyDownload && !S.openDownload, 'Notify when finished', S.openDownload)));
+      + row('Notify me when a download finishes', 'Click the notification to open the file. PDFs and pictures open right inside WakeUp.', sw('notifyDownload', S.notifyDownload && !S.openDownload, 'Notify when finished', S.openDownload)))
+      + group('Screenshots',
+        row('Save screenshots to', `<code class="path">${esc(S.screenshotDir || META.defaultShotDir)}</code>`, `<button class="btn small" data-act="pick-shots">Change…</button>${S.screenshotDir ? '<button class="btn small" data-act="reset-shots">Use Pictures</button>' : ''}`)
+        + row('Copy to the clipboard', 'So you can paste a screenshot straight into Teams or an email.', sw('screenshotCopy', S.screenshotCopy, 'Copy screenshots to the clipboard'))
+        + row('Taking one', 'Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>S</kbd> or the camera in the sidebar. Then open it beside your app, full screen, or in its own window.'));
   }
   if (tab === 'links') {
     return group('Opening links',
       row('Links to other websites', 'Ctrl+click or middle-click a link to always open it in your browser.', seg('externalLinks', S.externalLinks, [['browser', 'My browser'], ['window', 'WakeUp window']], 'Links to other websites'))
-      + row('Files and documents', 'Ebwise course files, SharePoint and OneDrive previews. A WakeUp window keeps you signed in; your browser may ask you to sign in again.', seg('docLinks', S.docLinks, [['window', 'WakeUp window'], ['browser', 'My browser']], 'Files and documents'))
+      + row('Ebwise files (PDFs, slides)', S.docLinks === 'beside' ? 'Opens next to Ebwise, so you can read and browse at the same time.' : S.docLinks === 'full' ? 'Fills the WakeUp window. Click Ebwise in the sidebar to go back.' : S.docLinks === 'window' ? 'Opens in its own window that stays signed in.' : 'Opens in your browser, which may ask you to sign in again.',
+        sel('docLinks', S.docLinks, [['beside', 'Beside the app'], ['full', 'Full screen'], ['window', 'Own window'], ['browser', 'My browser']], 'Ebwise files'))
+      + row('SharePoint and OneDrive previews', 'Open in a WakeUp window that stays signed in, unless Ebwise files are set to open in your browser.')
       + row('Email addresses', 'Clicking an email address starts a new message in Outlook.')
       + row('Teams meeting links', 'Links to Teams meetings and chats open in the Teams app.'))
       + group('', row('Right-click menu', 'Right-click a link to open it in your browser or a WakeUp window, copy it, or save it. Right-click a misspelled word for suggestions.'));
@@ -100,11 +132,12 @@ function sectionHtml(tab) {
     return group('Look',
       row('Theme', '', seg('theme', S.theme, [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], 'Theme'))
       + row('Page zoom', 'How big pages inside your apps appear.', sel('zoom', S.zoom, [80, 90, 100, 110, 125, 150].map((z) => [z, `${z}%`]), 'Page zoom'))
-      + row('Compact sidebar', 'Smaller app icons for more room.', sw('compact', S.compact, 'Compact sidebar')));
+      + row('Show app names in the sidebar', '', sw('labels', S.labels && !S.compact, 'Show app names', S.compact))
+      + row('Icons-only sidebar', 'Folds the sidebar to just the app icons, for more room. Small windows do this by themselves.', sw('compact', S.compact, 'Icons-only sidebar')));
   }
   return group('WakeUp',
     row(`Version ${esc(META.version || '')}`, 'Problems are written to a log file. Attach it if you report a bug.', '<button class="btn small" data-act="logs">Open log folder</button>')
-    + row('Reset layout', 'Close every pane and go back to the start screen. “Restore last workspace” brings it back.', '<button class="btn small" data-act="reset-layout">Reset</button>'))
+    + row('Reset layout', 'Close every app and split and go back to Today. Your sign-ins, timetable and tasks stay.', '<button class="btn small" data-act="reset-layout">Reset</button>'))
     + `<section class="set-group"><h2>Keyboard shortcuts</h2><div class="set-card pad">${KEYS_HTML}</div></section>`;
 }
 
@@ -117,19 +150,33 @@ function renderSettings() {
       <div class="set-body"><button class="hbtn set-close" data-act="close" title="Close (Esc)" aria-label="Close settings">${btnSvg('close')}</button><div class="set-content"></div></div></div>`;
     el.addEventListener('click', onSettingsClick);
     el.addEventListener('change', onSettingsChange);
-    el.addEventListener('submit', onAppSubmit);
-    el.addEventListener('input', (e) => { if (appForm && e.target.name in appForm) appForm[e.target.name] = e.target.value; });
+    el.addEventListener('submit', (e) => { if (e.target.dataset.form === 'nickname') saveNickname(e); else onAppSubmit(e); });
+    el.addEventListener('input', (e) => {
+      if (e.target.name === 'nickname') { const f = e.target.form; const dirty = e.target.value.trim() !== (SET.nickname || ''); f.classList.toggle('dirty', dirty); f.classList.remove('saved', 'failed'); $('.save-state', f).textContent = dirty ? 'Not saved yet' : ''; return; }
+      if (appForm && e.target.name in appForm) appForm[e.target.name] = e.target.value;
+    });
   }
   el.querySelectorAll('[data-tab]').forEach((b) => b.toggleAttribute('aria-current', b.dataset.tab === setTab));
   // keep keyboard focus on the same control across re-renders
   const a = document.activeElement; const key = a?.closest('#settings .set-content') ? (a.dataset.k ? `[data-k="${a.dataset.k}"]${a.dataset.v ? `[data-v="${a.dataset.v}"]` : ''}` : a.name ? `[name="${a.name}"]` : null) : null;
   $('.set-content', el).innerHTML = sectionHtml(setTab);
-  el.querySelectorAll('.app-row[data-id] .app-ico').forEach((i) => i.style.setProperty('--svc', ALL.find((s) => s.id === i.parentElement.dataset.id)?.color || '#888'));
+  paint($('.set-content', el));
+  el.querySelectorAll('.app-row[data-id] .app-ico').forEach((i) => i.style.setProperty('--svc', APPS.find((s) => s.id === i.parentElement.dataset.id)?.color || '#888'));
   if (key) $(`.set-content ${key}`, el)?.focus();
 }
 
+async function saveNickname(e) {
+  e.preventDefault();
+  const f = e.target; const v = f.nickname.value.trim(); const st = $('.save-state', f);
+  f.classList.remove('dirty', 'saved', 'failed'); f.classList.add('saving'); st.textContent = 'Saving…';
+  const ok = await save({ nickname: v });
+  const f2 = $('#settings form.nick-set') || f; const st2 = $('.save-state', f2); // the page re-renders after saving
+  f2.classList.remove('saving'); f2.classList.add(ok ? 'saved' : 'failed');
+  st2.textContent = ok ? (v ? `Saved. WakeUp will call you ${v}.` : 'Saved. No nickname.') : 'Not saved. Try again.';
+  if (ok) showNotice({ id: 'nickname', kind: 'success', title: 'Nickname saved', detail: v ? `Hi, ${v}.` : 'The greeting won’t use a name.' });
+}
 function moveApp(id, dir) {
-  const order = ALL.map((s) => s.id); const i = order.indexOf(id); const j = i + dir;
+  const order = APPS.map((s) => s.id); const i = order.indexOf(id); const j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return;
   [order[i], order[j]] = [order[j], order[i]];
   save({ order });
@@ -142,6 +189,7 @@ function onSettingsClick(e) {
   if (k && t.getAttribute('role') === 'switch') {
     const on = t.getAttribute('aria-checked') !== 'true';
     const [kind, sid] = k.split(':');
+    if (kind === 'form-mic') { appForm.mic = on; renderSettings(); return; }
     if (kind === 'autostart') save({ autostart: on });
     else if (kind === 'outlookOne') save({ hidden: on ? [...SET.hidden, 'calendar'] : SET.hidden.filter((x) => x !== 'calendar') });
     else if (kind === 'show') save({ hidden: on ? SET.hidden.filter((x) => x !== sid) : [...SET.hidden, sid] });
@@ -152,12 +200,16 @@ function onSettingsClick(e) {
   }
   if (k && t.getAttribute('role') === 'radio') {
     if (k === 'form-own') { appForm.own = t.dataset.v === 'own'; renderSettings(); return; }
-    save({ [k]: t.dataset.v });
+    save({ [k]: k === 'weekStart' ? Number(t.dataset.v) : t.dataset.v });
     return;
   }
   if (act === 'close') toggleSettings(false);
   else if (act === 'up' || act === 'down') moveApp(id, act === 'up' ? -1 : 1);
   else if (act === 'add') { appForm = { name: '', url: '', color: '#5e6ad2', own: true, error: '' }; renderSettings(); $('#settings [name="name"]')?.focus(); }
+  else if (act === 'add-ai') {
+    appForm = { name: t.dataset.name ? nextName(t.dataset.name) : '', url: t.dataset.url, color: t.dataset.color, own: true, ai: true, mic: false, error: '' };
+    renderSettings(); const f = $('#settings .app-form'); f?.scrollIntoView({ block: 'center' }); $(`#settings [name="${t.dataset.name ? 'name' : 'url'}"]`)?.focus();
+  }
   else if (act === 'edit') { const c = SET.customApps.find((x) => x.id === id); appForm = { ...c, orig: c.url, error: '' }; setTimeout(() => $('#settings [name="name"]')?.focus()); renderSettings(); }
   else if (act === 'form-cancel') { appForm = null; renderSettings(); }
   else if (act === 'remove') { confirmRemove = id; renderSettings(); $('#settings [data-act="remove-no"]')?.focus(); }
@@ -166,14 +218,19 @@ function onSettingsClick(e) {
     confirmRemove = null;
     if (appForm?.id === id) appForm = null;
     save({ customApps: SET.customApps.filter((c) => c.id !== id), order: SET.order.filter((x) => x !== id) }).then(() => { if (act === 'remove-clear') hub.clearAppData(id); });
-  } else if (act === 'pick-folder') hub.pickFolder().then((dir) => { if (dir) save({ downloadDir: dir }); });
+  } else if (act === 'pick-folder') hub.pickFolder('downloads').then((dir) => { if (dir) save({ downloadDir: dir }); });
   else if (act === 'reset-folder') save({ downloadDir: '' });
+  else if (act === 'pick-shots') hub.pickFolder('screenshots').then((dir) => { if (dir) save({ screenshotDir: dir }); });
+  else if (act === 'reset-shots') save({ screenshotDir: '' });
+  else if (act === 'tt-export') hub.exportPlanner();
+  else if (act === 'tt-import') hub.importPlanner().then((r) => { if (r?.error) t.closest('.set-row').querySelector('.set-desc').textContent = r.error; else if (r?.planner) t.textContent = 'Imported'; });
   else if (act === 'logs') hub.app('logs');
-  else if (act === 'reset-layout') { Object.assign(L, { tile: null, free: [], popped: [], alive: [], zoomed: null, focused: null }); toggleSettings(false); commit(); }
+  else if (act === 'reset-layout') { Object.assign(L, { tile: null, free: [], popped: [], alive: [], zoomed: null, focused: null, splits: [] }); toggleSettings(false); commit(); }
 }
 function onSettingsChange(e) {
-  const t = e.target; const k = t.dataset?.k; if (!k || t.tagName !== 'SELECT') return;
-  save({ [k]: k === 'sleepMinutes' || k === 'zoom' ? Number(t.value) : t.value });
+  const t = e.target; const k = t.dataset?.k; if (!k) return;
+  if (t.tagName !== 'SELECT') return;
+  save({ [k]: ['sleepMinutes', 'zoom', 'reminders'].includes(k) ? Number(t.value) : t.value });
 }
 function onAppSubmit(e) {
   e.preventDefault();
@@ -183,10 +240,15 @@ function onAppSubmit(e) {
   let u = null; try { u = new URL(url); } catch { /* invalid */ }
   f.error = !name ? 'Give the app a name.' : !u || !u.hostname.includes('.') ? 'That doesn’t look like a web address. Try something like https://www.notion.so' : u.protocol !== 'https:' ? 'Only secure (https://) addresses can be added.' : '';
   if (f.error) { renderSettings(); return; }
-  const entry = { id: f.id, name, url: u.href, color: f.color, own: f.own, icon: f.id && f.orig === u.href ? f.icon : null };
+  const entry = { id: f.id, name, url: u.href, color: f.color, own: f.own, icon: f.id && f.orig === u.href ? f.icon : null, ai: !!f.ai, mic: !!f.mic };
   const apps = f.id ? SET.customApps.map((c) => (c.id === f.id ? entry : c)) : [...SET.customApps, entry];
-  appForm = null;
-  save({ customApps: apps });
+  const before = new Set(SET.customApps.map((c) => c.id)); appForm = null;
+  save({ customApps: apps }).then((ok) => {
+    if (!ok) return;
+    const added = SET.customApps.find((c) => !before.has(c.id));
+    if (added) showNotice({ kind: 'success', title: `${added.name} added`, detail: added.own ? 'Open it and sign in. This sign-in is only for this app.' : 'It uses your Microsoft 365 sign-in.', actions: [{ label: 'Open it', run: () => { toggleSettings(false); openPane(added.id); } }] });
+    else showNotice({ kind: 'success', title: `${name} updated` });
+  });
 }
 
 // ---------- downloads ----------
@@ -229,7 +291,7 @@ function renderDownloads() {
         : live ? (d.total ? `${fmtSize(d.received)} of ${fmtSize(d.total)}` : `${fmtSize(d.received)}`)
           : d.state === 'completed' ? `${fmtSize(d.total || d.received)} · ${ago(d.ts)}` : d.state === 'cancelled' ? 'Cancelled' : 'Failed';
       const acts = live ? btn('cancel', 'Cancel', 'M4.5 4.5l7 7M11.5 4.5l-7 7')
-        : d.state === 'completed' ? `${btn('open', 'Open', 'M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5')}${btn('show', 'Show in folder', 'M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z')}${btn('remove', 'Remove from list', 'M4.5 4.5l7 7M11.5 4.5l-7 7')}`
+        : d.state === 'completed' ? `${d.viewable ? `<button class="btn small view" data-act="view" title="Open it beside your app">View</button>` : ''}${btn('open', d.viewable ? 'Open with another app' : 'Open', 'M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5')}${btn('show', 'Show in folder', 'M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z')}${btn('remove', 'Remove from list', 'M4.5 4.5l7 7M11.5 4.5l-7 7')}`
           : `${d.retry ? btn('retry', 'Try again', 'M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3') : ''}${btn('remove', 'Remove from list', 'M4.5 4.5l7 7M11.5 4.5l-7 7')}`;
       return `<div class="dl ${esc(d.state)}${d.missing ? ' missing' : ''}" data-id="${esc(d.id)}"><span class="dl-ico">${esc(ext)}</span>
         <div class="dl-main"><div class="dl-name" title="${esc(d.path || d.name)}">${esc(d.name)}</div><div class="dl-sub">${esc(sub)}</div>${live ? '<div class="dl-bar"><i></i></div>' : ''}</div>
@@ -247,8 +309,8 @@ function onDownloadsClick(e) {
   if (act === 'folder') hub.app('downloads-folder');
   else if (act === 'clear') for (const d of DL.values()) { if (!['progressing', 'paused'].includes(d.state)) hub.download(d.id, 'remove'); }
   else if (id) {
-    hub.download(id, act);
-    if (act === 'open' || act === 'show') toggleDownloads(false);
+    if (act === 'view') hub.viewDownload(id, 'beside'); else hub.download(id, act);
+    if (act === 'open' || act === 'show' || act === 'view') toggleDownloads(false);
   }
 }
 function onDownload(d) {

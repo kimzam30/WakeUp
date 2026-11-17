@@ -1,7 +1,7 @@
 {
   "name": "wakeup",
-  "version": "2.1.0",
-  "description": "Ebwise, Outlook, Calendar, To Do and Teams in one flexible window",
+  "version": "2.2.0",
+  "description": "Ebwise, Outlook, Teams, your timetable and tasks in one calm window",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -41,9 +41,9 @@
       "desktop": {
         "entry": {
           "Name": "WakeUp",
-          "Comment": "Ebwise, Outlook, Calendar, To Do and Teams side by side",
+          "Comment": "Ebwise, Outlook, Teams, your timetable and tasks in one window",
           "StartupWMClass": "wakeup",
-          "Keywords": "mail;teams;outlook;calendar;todo;ebwise;mmu;"
+          "Keywords": "mail;teams;outlook;calendar;todo;ebwise;mmu;timetable;tasks;"
         }
       }
     },

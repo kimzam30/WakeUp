@@ -1,0 +1,124 @@
+'use strict';
+/* global PL, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, classLabel, classIcon, emptyArt, btnSvg */
+/* eslint-disable no-unused-vars */
+// Tasks: a fast local to-do list. Each task can have a due date and belong to a class.
+
+const TASK_GROUPS = [
+  ['overdue', 'Overdue', 'late'], ['today', 'Today', ''], ['upcoming', 'Upcoming', ''], ['someday', 'No date', ''], ['done', 'Done', 'done'],
+];
+function dueLabel(due, today) {
+  if (!due) return '';
+  const d = Planner.daysBetween(today, due);
+  return d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : d === -1 ? 'Yesterday' : d < 0 ? `${-d} days late` : d < 7 ? fmtDate(due).split(' ')[0] : fmtDate(due);
+}
+
+function TasksView(root) {
+  const st = { due: 'today', classId: '', showDone: false, editing: null };
+  root.classList.add('lv', 'tasks-view');
+  root.innerHTML = `
+    <header class="lv-head"><div class="lv-title"><h2>Tasks</h2><span class="lv-sub"></span></div></header>
+    <form class="task-add" autocomplete="off">
+      <span class="add-ico">${btnSvg('plus')}</span>
+      <input name="text" maxlength="300" placeholder="Add a task, then press Enter" aria-label="New task">
+      <div class="add-opts">
+        <div class="chips" role="radiogroup" aria-label="Due">
+          <button type="button" role="radio" data-due="today">Today</button><button type="button" role="radio" data-due="tomorrow">Tomorrow</button><button type="button" role="radio" data-due="">No date</button>
+          <label class="chip-date" title="Pick a date">${btnSvg('cal')}<span class="cd-lbl"></span><input type="date" name="date" aria-label="Due date"></label>
+        </div>
+        <select name="cls" aria-label="Class"></select>
+      </div>
+    </form>
+    <div class="task-groups"></div>`;
+  const form = $('.task-add', root); const input = $('[name="text"]', form);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value.trim(); if (!text) return;
+    const today = Planner.today();
+    const due = st.due === 'today' ? today : st.due === 'tomorrow' ? Planner.addDays(today, 1) : st.due || null;
+    savePlanner({ tasks: [{ id: newId('t'), text, done: false, due, classId: st.classId || null, created: Date.now(), doneAt: null }, ...PL.tasks] });
+    input.value = '';
+  });
+  form.addEventListener('click', (e) => { const b = e.target.closest('[data-due]'); if (b) { st.due = b.dataset.due; $('[name="date"]', form).value = ''; render(); input.focus(); } });
+  form.addEventListener('change', (e) => {
+    if (e.target.name === 'date' && e.target.value) { st.due = e.target.value; render(); }
+    if (e.target.name === 'cls') st.classId = e.target.value;
+  });
+
+  const list = $('.task-groups', root);
+  const update = (id, patch) => savePlanner({ tasks: PL.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const id = b.closest('[data-id]')?.dataset.id;
+    if (b.dataset.act === 'toggle') {
+      const t = PL.tasks.find((x) => x.id === id); if (!t) return;
+      if (!t.done) { b.closest('.task').classList.add('just-done'); setTimeout(() => update(id, { done: true, doneAt: Date.now() }), 250); } else update(id, { done: false, doneAt: null });
+    } else if (b.dataset.act === 'del') savePlanner({ tasks: PL.tasks.filter((t) => t.id !== id) });
+    else if (b.dataset.act === 'show-done') { st.showDone = !st.showDone; render(); }
+    else if (b.dataset.act === 'clear-done') savePlanner({ tasks: PL.tasks.filter((t) => !t.done) });
+    else if (b.dataset.act === 'focus-add') input.focus();
+  });
+  list.addEventListener('dblclick', (e) => { const t = e.target.closest('.t-text'); if (t) { st.editing = t.closest('[data-id]').dataset.id; render(); } });
+  list.addEventListener('change', (e) => {
+    const id = e.target.closest('[data-id]')?.dataset.id;
+    if (e.target.name === 'due') update(id, { due: e.target.value || null });
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.target.name !== 'edit') return;
+    if (e.key === 'Enter') { const v = e.target.value.trim(); const id = st.editing; st.editing = null; if (v) update(id, { text: v }); else render(); }
+    if (e.key === 'Escape') { e.stopPropagation(); st.editing = null; render(); }
+  });
+  list.addEventListener('focusout', (e) => { if (e.target.name === 'edit' && st.editing) { const v = e.target.value.trim(); const id = st.editing; st.editing = null; if (v) update(id, { text: v }); else render(); } });
+
+  function taskRow(t, today) {
+    const c = PL.classes.find((k) => k.id === t.classId);
+    const late = !t.done && t.due && t.due < today;
+    const text = st.editing === t.id ? `<input name="edit" value="${esc(t.text)}" maxlength="300" aria-label="Edit task">` : `<span class="t-text" title="Double-click to edit">${esc(t.text)}</span>`;
+    return `<li class="task${t.done ? ' done' : ''}" data-id="${esc(t.id)}">
+      <button class="check" data-act="toggle" aria-pressed="${t.done}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${btnSvg('check')}</button>
+      <div class="t-main">${text}<div class="t-meta">
+        ${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classLabel(c))}</span>` : ''}
+        <label class="due-chip${late ? ' late' : ''}"><span>${t.due ? esc(dueLabel(t.due, today)) : 'Add date'}</span><input type="date" name="due" value="${esc(t.due || '')}" aria-label="Due date"></label>
+      </div></div>
+      <button class="hbtn del" data-act="del" aria-label="Delete task" title="Delete">${btnSvg('trash')}</button></li>`;
+  }
+
+  function render() {
+    const today = Planner.today();
+    const groups = Object.fromEntries(TASK_GROUPS.map(([k]) => [k, []]));
+    for (const t of PL.tasks) groups[Planner.bucket(t, today)].push(t);
+    groups.upcoming.sort((a, b) => a.due.localeCompare(b.due));
+    groups.overdue.sort((a, b) => a.due.localeCompare(b.due));
+    groups.done.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+    const open = PL.tasks.length - groups.done.length;
+    $('.lv-sub', root).textContent = !PL.tasks.length ? 'Your to-do list'
+      : [groups.overdue.length && `${groups.overdue.length} overdue`, groups.today.length && `${groups.today.length} due today`, `${open} to do`].filter(Boolean).join(' · ');
+    // add form
+    $$('[data-due]', form).forEach((b) => b.setAttribute('aria-checked', String(b.dataset.due === st.due)));
+    const custom = st.due && !['today', 'tomorrow'].includes(st.due);
+    $('.chip-date', form).classList.toggle('on', custom);
+    $('.cd-lbl', form).textContent = custom ? fmtDate(st.due) : '';
+    const sel = $('[name="cls"]', form);
+    if (st.classId && !PL.classes.some((c) => c.id === st.classId)) st.classId = '';
+    sel.innerHTML = `<option value="">No class</option>${PL.classes.map((c) => `<option value="${esc(c.id)}"${c.id === st.classId ? ' selected' : ''}>${esc(classLabel(c))}</option>`).join('')}`;
+    sel.hidden = !PL.classes.length;
+    // groups
+    if (!open && !groups.done.length) {
+      list.innerHTML = `<div class="empty">${emptyArt('check')}<h3>No tasks yet</h3><p>Type a task above and press Enter. Give it a date or a class if you like.</p></div>`;
+      return;
+    }
+    let html = '';
+    for (const [k, label, tone] of TASK_GROUPS) {
+      const items = groups[k]; if (!items.length) continue;
+      if (k === 'done') {
+        html += `<section class="t-group done"><div class="t-head"><button class="link" data-act="show-done" aria-expanded="${st.showDone}">${st.showDone ? 'Hide' : 'Show'} ${items.length} done</button>${st.showDone ? '<button class="link" data-act="clear-done">Clear done</button>' : ''}</div>${st.showDone ? `<ul>${items.map((t) => taskRow(t, today)).join('')}</ul>` : ''}</section>`;
+      } else html += `<section class="t-group${tone ? ` ${tone}` : ''}"><div class="t-head"><h3>${label}</h3><span class="n">${items.length}</span></div><ul>${items.map((t) => taskRow(t, today)).join('')}</ul></section>`;
+    }
+    if (!open) html = `<div class="empty small">${emptyArt('check')}<h3>All done</h3><p>Nothing left to do. Add the next thing above.</p></div>${html}`;
+    const editing = st.editing;
+    list.innerHTML = html;
+    paint(list);
+    if (editing) { const i = $('[name="edit"]', list); i?.focus(); i?.select(); }
+  }
+  render();
+  return { render, focus: () => input.focus() };
+}
