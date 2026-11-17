@@ -109,7 +109,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npx electron-builder --linux dir AppImage # build/icons is committed; scripts/make-icons.py only when the logo changes
+      - run: npx electron-builder --linux dir AppImage --publish never # the release job publishes; build/icons is committed; scripts/make-icons.py only when the logo changes
       - run: tar -czf "dist/WakeUp-${{ needs.version.outputs.version }}-linux-x64.tar.gz" -C dist linux-unpacked
       - uses: actions/upload-artifact@v4
         with:
