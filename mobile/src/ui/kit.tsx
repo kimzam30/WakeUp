@@ -1,12 +1,15 @@
 // Small building blocks used by every screen. Shape lock (theme.ts): pills for actions, 14 for cards,
 // 10 for inputs and rows, 6 for chips. Press feedback is a background highlight on rows and a slight scale on buttons.
-import { forwardRef, type ComponentRef, type ReactNode } from 'react';
+import { forwardRef, useEffect, type ComponentRef, type ReactNode } from 'react';
 import {
   Dimensions, Modal, Pressable, ScrollView, Switch as RNSwitch, Text, TextInput, View, useWindowDimensions,
   type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { haptic } from '../lib/haptics';
+import { useDragToClose } from './motion';
 import { Icon } from './Icon';
 import { R, S, T, useTheme } from './theme';
 
@@ -183,29 +186,41 @@ export function Switch({ value, onChange, label }: { value: boolean; onChange: (
   return <RNSwitch accessibilityLabel={label} value={value} onValueChange={onChange} trackColor={{ true: c.accent, false: c.lineStrong }} thumbColor="#fff" />;
 }
 
-// Bottom sheet on phones, centred dialog on tablets.
+// Bottom sheet on phones (drag its top bar down to close), centred dialog on tablets.
 export function Sheet({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
   const { c } = useTheme();
   const { wide, height } = useLayout();
   const insets = useSafeAreaInsets();
+  const drag = useDragToClose(onClose, !wide);
+  const { reset } = drag;
+  useEffect(() => { if (open) reset(); }, [open, reset]);
+  const top = (
+    <View>
+      {!wide ? <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: c.lineStrong, marginTop: S(2) }} /> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: S(5), paddingRight: S(2), paddingTop: S(2) }}>
+        <Txt kind="title" style={{ flex: 1 }}>{title}</Txt>
+        <IconButton icon="close" label="Close" onPress={onClose} />
+      </View>
+    </View>
+  );
   return (
     <Modal visible={open} transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, backgroundColor: c.scrim, justifyContent: wide ? 'center' : 'flex-end', alignItems: 'center', padding: wide ? S(8) : 0 }}>
+          <Animated.View style={[{ width: '100%', maxWidth: wide ? 560 : undefined, maxHeight: height * (wide ? 0.86 : 0.92) }, drag.style]}>
           <Pressable onPress={() => {}} style={{
-            width: '100%', maxWidth: wide ? 560 : undefined, maxHeight: height * (wide ? 0.86 : 0.92), backgroundColor: c.raised,
+            backgroundColor: c.raised, flexShrink: 1,
             borderRadius: R.card + 6, borderBottomLeftRadius: wide ? R.card + 6 : 0, borderBottomRightRadius: wide ? R.card + 6 : 0, borderCurve: 'continuous', overflow: 'hidden',
           }}>
-            {!wide ? <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: c.lineStrong, marginTop: S(2) }} /> : null}
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: S(5), paddingRight: S(2), paddingTop: S(2) }}>
-              <Txt kind="title" style={{ flex: 1 }}>{title}</Txt>
-              <IconButton icon="close" label="Close" onPress={onClose} />
-            </View>
+            {wide ? top : <GestureDetector gesture={drag.pan}>{top}</GestureDetector>}
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: S(5), paddingTop: S(2), gap: S(4) }}>{children}</ScrollView>
             {footer ? <View style={{ flexDirection: 'row', gap: S(3), justifyContent: 'flex-end', padding: S(4), paddingBottom: S(4) + (wide ? 0 : insets.bottom), borderTopWidth: 1, borderColor: c.line }}>{footer}</View> : null}
           </Pressable>
+          </Animated.View>
         </Pressable>
       </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

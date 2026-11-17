@@ -1,5 +1,5 @@
 // Tasks: quick add at the top, grouped Late / Today / Coming up / Someday, done ones folded away.
-// Tap the circle to finish a task; tap the task to edit it: a sheet on phones, a panel beside the list on a
+// Tap the circle (or swipe the row right) to finish a task, swipe left to delete; tap the task to edit it: a sheet on phones, a panel beside the list on a
 // landscape tablet. Typing in quick add only re-renders the quick-add box, not the list.
 import { memo, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
@@ -7,6 +7,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { haptic } from '../../lib/haptics';
 import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Sheet, Txt, useLayout } from '../../ui/kit';
 import { DateField } from '../../ui/DateField';
+import Animated from 'react-native-reanimated';
+import { SwipeRow, enter, leave, move } from '../../ui/motion';
 import { Icon } from '../../ui/Icon';
 import { R, S, T, useTheme } from '../../ui/theme';
 import { Planner, Schema } from '../../lib/shared';
@@ -43,7 +45,8 @@ export default function Tasks() {
     if (!t.done) haptic('success');
     setPlanner((p) => ({ tasks: p.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneAt: x.done ? null : Date.now() } : x)) }));
   };
-  const list = (items: Task[]) => <Card>{items.map((t, i) => <TaskRow key={t.id} t={t} first={!i} cls={t.classId ? byId.get(t.classId) : undefined} mode={mode} today={today} picked={twoCol && t.id === editId} onToggle={toggle} onOpen={setEditId} />)}</Card>;
+  const remove = (t: Task) => { if (editId === t.id) setEditId(null); setPlanner((p) => ({ tasks: p.tasks.filter((x) => x.id !== t.id) })); };
+  const list = (items: Task[]) => <Card>{items.map((t, i) => <TaskRow key={t.id} t={t} first={!i} cls={t.classId ? byId.get(t.classId) : undefined} mode={mode} today={today} picked={twoCol && t.id === editId} onToggle={toggle} onOpen={setEditId} onDelete={remove} />)}</Card>;
 
   const body = (
     <Page max={twoCol ? 720 : 760}>
@@ -90,10 +93,12 @@ export default function Tasks() {
   );
 }
 
-const TaskRow = memo(function TaskRow({ t, first, cls, mode, today, picked, onToggle, onOpen }: { t: Task; first: boolean; cls?: ClassItem; mode: 'code' | 'name' | 'both'; today: string; picked: boolean; onToggle: (t: Task) => void; onOpen: (id: string) => void }) {
+const TaskRow = memo(function TaskRow({ t, first, cls, mode, today, picked, onToggle, onOpen, onDelete }: { t: Task; first: boolean; cls?: ClassItem; mode: 'code' | 'name' | 'both'; today: string; picked: boolean; onToggle: (t: Task) => void; onOpen: (id: string) => void; onDelete: (t: Task) => void }) {
   const { c } = useTheme();
   return (
-    <View style={{ backgroundColor: picked ? c.accentSoft : 'transparent' }}>
+    <Animated.View entering={enter} exiting={leave} layout={move}>
+    <SwipeRow done={t.done} onDone={() => onToggle(t)} onDelete={() => onDelete(t)}>
+    <View style={{ backgroundColor: picked ? c.accentSoft : c.raised }}>
       {first ? null : <Divider inset={56} />}
       <Row onPress={() => onOpen(t.id)} style={{ paddingLeft: S(2) }}>
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: t.done }} accessibilityLabel={t.done ? 'Mark not done' : 'Mark done'} onPress={() => onToggle(t)} hitSlop={8}
@@ -111,6 +116,8 @@ const TaskRow = memo(function TaskRow({ t, first, cls, mode, today, picked, onTo
         </View>
       </Row>
     </View>
+    </SwipeRow>
+    </Animated.View>
   );
 });
 

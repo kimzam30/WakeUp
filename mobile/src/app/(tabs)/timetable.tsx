@@ -1,4 +1,5 @@
-// Timetable: a list of the coming two weeks (default on phones) or a week grid (default on tablets).
+// Timetable: a list of the coming two weeks (default on phones) or a week grid (default on tablets). Swipe the
+// grid sideways to change the week when the days fit on screen.
 // Tap a class for its details and one-off changes (cancel this date, online today): a sheet on phones, a panel
 // beside the week on a landscape tablet. Edit or add classes in a modal. The Flip cover screen shows the list only.
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -6,6 +7,7 @@ import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
+import { SwipePager } from '../../ui/motion';
 import { DateField, TimeField } from '../../ui/DateField';
 import { Icon } from '../../ui/Icon';
 import { R, S, STATUS, useTheme } from '../../ui/theme';
@@ -97,11 +99,11 @@ export default function Timetable() {
         </Page>
       ) : panel ? (
         <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={{ flex: 1 }}><WeekGrid header={header} byDay={byDay} onPick={setSel} picked={sel?.key} /></View>
+          <View style={{ flex: 1 }}><WeekGrid header={header} byDay={byDay} onPick={setSel} picked={sel?.key} onSwipe={(d) => setFirst((f) => Planner.addDays(f, 7 * d))} /></View>
           {sel ? <SidePanel o={sel} onClose={() => setSel(null)} /> : null}
         </View>
       ) : (
-        <WeekGrid header={header} byDay={byDay} onPick={setSel} />
+        <WeekGrid header={header} byDay={byDay} onPick={setSel} onSwipe={(d) => setFirst((f) => Planner.addDays(f, 7 * d))} />
       )}
       {panel ? null : <OccurrenceSheet o={sel} onClose={() => setSel(null)} />}
       <SemesterSheet open={semOpen} onClose={() => setSemOpen(false)} semester={planner.semester} />
@@ -126,7 +128,7 @@ function lanes(list: Occurrence[]) {
 }
 
 // Week grid: hours down the side, one column per day. On phones the columns scroll sideways.
-function WeekGrid({ header, byDay, onPick, picked }: { header: ReactNode; byDay: { d: string; list: Occurrence[] }[]; onPick: (o: Occurrence) => void; picked?: string }) {
+function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNode; byDay: { d: string; list: Occurrence[] }[]; onPick: (o: Occurrence) => void; picked?: string; onSwipe: (dir: 1 | -1) => void }) {
   const { c } = useTheme();
   const { size } = useLayout();
   const mode = useStore((s) => s.settings.classLabel);
@@ -141,12 +143,15 @@ function WeekGrid({ header, byDay, onPick, picked }: { header: ReactNode; byDay:
   const col = Math.max(size === 'compact' ? 128 : 112, // wide enough for a whole status chip (“Replacement”)
      cardW ? (cardW - 2 - gutter) / shown.length : 0);
   const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+  // when the days don't fit they scroll sideways; when they do, swiping sideways changes the week
+  const overflow = !cardW || gutter + col * shown.length + 2 > cardW + 1;
   return (
     <Page max={1400}>
       {header}
+      <SwipePager onSwipe={onSwipe} enabled={!overflow}>
       <Card>
         <View onLayout={(e) => setCardW(e.nativeEvent.layout.width)} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={overflow}>
           <View>
             <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: c.line }}>
               <View style={{ width: gutter }} />
@@ -196,6 +201,7 @@ function WeekGrid({ header, byDay, onPick, picked }: { header: ReactNode; byDay:
           </View>
         </ScrollView>
       </Card>
+      </SwipePager>
     </Page>
   );
 }

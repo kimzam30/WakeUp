@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { haptic } from '../../lib/haptics';
 import { Button, Card, Chip, Columns, Divider, Page, Row, Section, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
-import { AppGlyph, Icon } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
+import { AppTile } from '../../ui/AppTile';
 import { Logo } from '../../ui/Logo';
 import { R, S, STATUS, T, useTheme } from '../../ui/theme';
 import { Planner } from '../../lib/shared';
@@ -151,9 +152,7 @@ export default function Today() {
             {apps.map((a) => (
               <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={() => { openApp(a.id); router.navigate('/apps'); }}
                 style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingHorizontal: S(3), height: 48, borderRadius: R.input, borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.raised })}>
-                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: a.color, alignItems: 'center', justifyContent: 'center' }}>
-                  <AppGlyph id={a.id} name={a.name} size={17} />{!['ebwise', 'mail', 'calendar', 'teams'].includes(a.id) ? <Txt style={{ color: '#fff', fontWeight: '700' }}>{a.name[0]}</Txt> : null}
-                </View>
+                <AppTile app={a} size={28} />
                 <Txt style={[T.body, { fontWeight: '500' }]}>{a.name}</Txt>
               </Pressable>
             ))}

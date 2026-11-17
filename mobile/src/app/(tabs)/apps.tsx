@@ -9,7 +9,8 @@ import { useFocusEffect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { haptic } from '../../lib/haptics';
 import { Button, Empty, IconButton, Sheet, Txt, useLayout } from '../../ui/kit';
-import { AppGlyph, Icon } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
+import { AppTile as Glyph } from '../../ui/AppTile';
 import { R, S, useTheme } from '../../ui/theme';
 import { allApps, closeApp, closeSplit, focusedApp, openApp, openSplit, updateSplit, useStore } from '../../lib/store';
 import type { WebApp } from '../../lib/types';
@@ -31,14 +32,6 @@ function googleBlocked(app: WebApp) {
     [{ text: 'Open in browser', onPress: () => openOutside(app.url) }, { text: 'OK', style: 'cancel' }]);
 }
 
-function Glyph({ app, size = 28 }: { app: WebApp; size?: number }) {
-  return (
-    <View style={{ width: size, height: size, borderRadius: size * 0.28, borderCurve: 'continuous', backgroundColor: app.color, alignItems: 'center', justifyContent: 'center' }}>
-      {['ebwise', 'mail', 'calendar', 'teams'].includes(app.id) ? <AppGlyph id={app.id} name={app.name} size={size * 0.62} /> : <Txt style={{ color: '#fff', fontWeight: '700', fontSize: size * 0.45 }}>{app.name[0]}</Txt>}
-    </View>
-  );
-}
-
 export default function Apps() {
   const { c } = useTheme();
   const { size, wide } = useLayout();
@@ -52,6 +45,7 @@ export default function Apps() {
   const refs = useRef<Record<string, ComponentRef<typeof WebView> | null>>({});
   const navRef = useRef<Record<string, Nav>>({});
   const [, bump] = useState(0); // toolbar re-renders when the focused page's nav state changes
+  const [titles, setTitles] = useState<Record<string, string>>({}); // page titles, for the tablet's title bar
   const [picker, setPicker] = useState(false);
   const [area, setArea] = useState({ w: 0, h: 0 });
   const canSplit = size !== 'cover' && apps.length > 1;
@@ -80,6 +74,7 @@ export default function Apps() {
   const onNav = useCallback((id: string, e: WebViewNavigation) => {
     const prev = navRef.current[id];
     navRef.current[id] = { canGoBack: e.canGoBack, loading: e.loading, url: e.url, title: e.title };
+    if (!prev || prev.title !== e.title) setTitles((t) => ({ ...t, [id]: e.title }));
     if (!prev || prev.loading !== e.loading || prev.title !== e.title || prev.canGoBack !== e.canGoBack) bump((x) => x + 1);
   }, []);
   const setRef = useCallback((id: string, r: ComponentRef<typeof WebView> | null) => { refs.current[id] = r; }, []);
@@ -122,7 +117,14 @@ export default function Apps() {
   return (
     <View style={{ flex: 1, backgroundColor: c.side, paddingTop: insets.top }}>
       <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
-        <View style={{ flex: 1 }}>{switcher}</View>
+        {/* tablets list the apps in the sidebar, so the bar shows what's on screen instead, like a desktop pane */}
+        <View style={{ flex: 1 }}>{wide ? (app ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3), paddingHorizontal: S(4) }}>
+            <Glyph app={app} size={24} />
+            <Txt kind="small" numberOfLines={1} style={{ flexShrink: 1, fontWeight: '600' }}>{app.name}</Txt>
+            {titles[app.id] && titles[app.id] !== app.name && !/^https?:/.test(titles[app.id]) ? <Txt kind="small" muted numberOfLines={1} style={{ flexShrink: 1 }}>{titles[app.id]}</Txt> : null}
+          </View>
+        ) : null) : switcher}</View>
         {app ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
           {size !== 'compact' ? <IconButton icon="back" label="Back" onPress={() => refs.current[app.id]?.goBack()} /> : null}
           <IconButton icon="reload" label="Reload" onPress={() => refs.current[app.id]?.reload()} />

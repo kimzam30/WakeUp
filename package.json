@@ -1,6 +1,6 @@
 {
   "name": "wakeup",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Ebwise, Outlook, Teams, your timetable and tasks in one calm window",
   "main": "src/main.js",
   "scripts": {

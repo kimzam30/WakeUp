@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useStore } from '../lib/store';
 import { startSync } from '../lib/sync';
 import { startUpdates } from '../lib/updater';
@@ -28,6 +29,7 @@ export default function Root() {
   }, []);
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}); }, [c.bg]);
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <StatusBar style={dark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg }, animation: 'fade_from_bottom' }}>
@@ -40,5 +42,6 @@ export default function Root() {
         </Stack.Protected>
       </Stack>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
