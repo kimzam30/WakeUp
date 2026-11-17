@@ -35,6 +35,38 @@ function refreshSyncCard() {
   if (card) card.innerHTML = syncRow(); else if (settingsOpen && setTab === 'general') renderSettings();
 }
 hub.onSync?.((st) => { SYNC = st; if (settingsOpen && setTab === 'general') refreshSyncCard(); });
+
+// ---- updates (Settings → About): what's installed, what's out, one button to get it
+let UPD = null;
+function updateRow() {
+  const u = UPD;
+  if (!u) return row('Updates', 'Checking how WakeUp was installed…');
+  if (u.phase === 'unsupported') {
+    return row('Updates', u.mode === 'dev' ? 'You’re running WakeUp from its source code. Pull the latest code to update.'
+      : 'One-click updates work when WakeUp is installed with scripts/install.sh or run as an AppImage. Download the latest version from GitHub to update.',
+    '<button class="btn small" data-act="upd-page">Releases</button>');
+  }
+  const pct = Math.round((u.progress || 0) * 100);
+  const desc = u.phase === 'checking' ? 'Checking for updates…'
+    : u.phase === 'available' ? `WakeUp ${esc(u.latest)} is ready to install.${u.notes ? `<br><span class="upd-notes">${esc(u.notes).replace(/\n/g, '<br>')}</span>` : ''}`
+      : u.phase === 'downloading' ? `Downloading ${esc(u.latest)}… ${pct}%`
+        : u.phase === 'installing' ? `Installing ${esc(u.latest)}…`
+          : u.phase === 'ready' ? `WakeUp ${esc(u.latest)} is installed. Restart to start using it; your apps and layout come back as they are.`
+            : u.phase === 'error' ? `<span class="bad-text">${esc(u.error || 'The update didn’t work.')}</span> Nothing was changed.`
+              : u.phase === 'current' ? `You have the latest version.${u.checkedAt ? ` Checked ${syncAgo(new Date(u.checkedAt).toISOString())}.` : ''}`
+                : 'WakeUp checks GitHub for a new version a few times a day.';
+  const ctl = u.phase === 'available' ? '<button class="btn small primary" data-act="upd-install">Update now</button><button class="btn small" data-act="upd-page">What’s new</button>'
+    : u.phase === 'downloading' ? '<button class="btn small" data-act="upd-cancel">Cancel</button>'
+      : u.phase === 'ready' ? '<button class="btn small primary" data-act="upd-restart">Restart now</button>'
+        : u.phase === 'installing' ? '' : `<button class="btn small" data-act="upd-check"${u.phase === 'checking' ? ' disabled' : ''}>Check for updates</button>`;
+  return row('Updates', desc, ctl) + row('Check for updates automatically', 'Looks on GitHub when WakeUp starts and every few hours. Nothing installs until you click Update.', sw('autoUpdate', SET.autoUpdate !== false, 'Check for updates automatically'));
+}
+function refreshUpdateCard() {
+  const card = document.querySelector('#settings [data-update-card]');
+  if (card) card.innerHTML = updateRow();
+}
+hub.onUpdate?.((st) => { UPD = st; if (settingsOpen && setTab === 'about') refreshUpdateCard(); });
+hub.update?.('status').then((st) => { if (st) UPD = st; });
 hub.sync?.('status').then((st) => { if (st) SYNC = st; });
 const AI_PRESETS = [ // a starting point; any AI that works in a browser can be added with 'Other'
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
@@ -114,7 +146,7 @@ function sectionHtml(tab) {
       </form>` : '<button class="btn" data-act="add">+ Add an app</button>';
     return `<section class="set-group"><h2>Your apps</h2><p class="set-lead">Hidden apps disappear from the sidebar and stop running. Order sets their <kbd>Ctrl</kbd> number.</p>
       <div class="set-card apps"><div class="app-row head" aria-hidden="true"><span></span><span></span><span>Show</span><span>Keep running</span><span>Notify</span><span></span></div>${rows}</div></section>
-      <section class="set-group"><h2>AI assistants</h2><p class="set-lead">Pick one to add it. Each one you add has its own sign-in, so you can add the same AI twice for two accounts (for example personal and work).</p>
+      <section class="set-group"><h2>AI assistants</h2><p class="set-lead">Pick one to add it. Each one you add has its own sign-in, so you can add the same AI twice for two accounts (for example personal and work). Google often blocks “Continue with Google” inside apps; if it does, sign in with your email instead.</p>
         <div class="set-card pad"><div class="ai-grid">${AI_PRESETS.map(([n, u, c]) => `<button class="ai-pick" data-act="add-ai" data-name="${esc(n)}" data-url="${esc(u)}" data-color="${esc(c)}"><span class="ai-dot" data-c="${esc(c)}">${esc(n[0])}</span><span>${esc(n)}</span>${SET.customApps.some((a) => a.url === u) ? '<small>Add another account</small>' : ''}</button>`).join('')}<button class="ai-pick" data-act="add-ai" data-name="" data-url="" data-color="#6b6a67"><span class="ai-dot other">${btnSvg('plus')}</span><span>Other AI…</span></button></div></div></section>
       <section class="set-group"><h2>Add your own</h2><p class="set-lead">Any website that works in a browser: Notion, your MMU portal, a class forum…</p><div class="set-card pad">${form}</div></section>`;
   }
@@ -166,7 +198,7 @@ function sectionHtml(tab) {
       + row('Show app names in the sidebar', '', sw('labels', S.labels && !S.compact, 'Show app names', S.compact))
       + row('Icons-only sidebar', 'Folds the sidebar to just the app icons, for more room. Small windows do this by themselves.', sw('compact', S.compact, 'Icons-only sidebar')));
   }
-  return group('WakeUp',
+  return `<section class="set-group"><h2>Updates</h2><div class="set-card" data-update-card>${updateRow()}</div></section>` + group('WakeUp',
     row(`Version ${esc(META.version || '')}`, 'Problems are written to a log file. Attach it if you report a bug.', '<button class="btn small" data-act="logs">Open log folder</button>')
     + row('Reset layout', 'Close every app and split and go back to Today. Your sign-ins, timetable and tasks stay.', '<button class="btn small" data-act="reset-layout">Reset</button>'))
     + `<section class="set-group"><h2>Keyboard shortcuts</h2><div class="set-card pad">${KEYS_HTML}</div></section>`;
@@ -264,6 +296,11 @@ function onSettingsClick(e) {
   }
   else if (act === 'tt-import') hub.importPlanner().then((r) => { if (r?.error) t.closest('.set-row').querySelector('.set-desc').textContent = r.error; else if (r?.planner) t.textContent = 'Imported'; });
   else if (act === 'logs') hub.app('logs');
+  else if (act === 'upd-check') { UPD = { ...UPD, phase: 'checking' }; refreshUpdateCard(); hub.update('check'); }
+  else if (act === 'upd-install') hub.update('install');
+  else if (act === 'upd-cancel') hub.update('cancel');
+  else if (act === 'upd-restart') hub.update('restart');
+  else if (act === 'upd-page') hub.openLink(UPD?.page || 'https://github.com/kimzam30/WakeUp/releases');
   else if (act === 'reset-layout') { Object.assign(L, { tile: null, free: [], popped: [], alive: [], zoomed: null, focused: null, splits: [] }); toggleSettings(false); commit(); }
 }
 function onSettingsChange(e) {

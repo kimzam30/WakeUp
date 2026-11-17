@@ -1,3 +1,4 @@
+import { Planner } from '../lib/shared';
 // WakeUp's colours, the same tokens as the desktop app (src/ui/ui.css): neutral surfaces, thin lines,
 // one blue accent. Colour beyond that comes only from app icons, class colours and status chips.
 import { useColorScheme } from 'react-native';
@@ -40,8 +41,6 @@ export const T = {
   tiny: { fontSize: 11, lineHeight: 14, fontWeight: '600' as const, letterSpacing: 0.4 },
 };
 
-// Status chips on classes (same words and colours as the desktop app)
-export const STATUS: Record<string, [string, 'bad' | 'info' | 'warn' | 'good']> = {
-  cancelled: ['Cancelled', 'bad'], online: ['Online today', 'info'], moved: ['Moved', 'warn'], 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'],
-};
-export const CLASS_COLORS = ['#2f6fde', '#7c5cd6', '#1f9d63', '#d0573a', '#c2410c', '#0f8a8a', '#b4417a', '#b7791f'];
+// Status chips and class colours come from the shared planner core, so both apps use the same words and colours.
+export const STATUS: Record<string, [string, 'bad' | 'info' | 'warn' | 'good']> = Planner.STATUS;
+export const CLASS_COLORS: string[] = Planner.CLASS_COLORS;

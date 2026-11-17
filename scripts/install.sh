@@ -15,22 +15,18 @@ SIZES="16 24 32 48 64 128 256 512"
 favorites() { gsettings get org.gnome.shell favorite-apps 2>/dev/null || echo "@as []"; }
 set_favorites() { gsettings set org.gnome.shell favorite-apps "$1" 2>/dev/null || true; }
 drop_fav() { sed "s/, '$1'//; s/'$1', //; s/'$1'//"; }
-running() { pgrep -f "^$LIB/wakeup" >/dev/null || pgrep -f "/tmp/\.mount_WakeU" >/dev/null || pgrep -f "/tmp/\.mount_WorkH" >/dev/null; }
+running() { pgrep -f "^$LIB/wakeup" >/dev/null || pgrep -f "/tmp/\.mount_WakeU" >/dev/null; }
 
 # Ask a running WakeUp to quit (it saves its layout first), then wait for it.
 stop_app() {
   [ -x "$BIN" ] && "$BIN" --quit >/dev/null 2>&1 || true
   pkill -TERM -f "/tmp/\.mount_WakeU" 2>/dev/null || true   # the old AppImage
-  pkill -TERM -f "/tmp/\.mount_WorkH" 2>/dev/null || true   # the older Work Hub AppImage
   for _ in $(seq 1 40); do running || return 0; sleep 0.25; done
   echo "WakeUp didn't quit; stopping it."; pkill -KILL -f "^$LIB/wakeup" 2>/dev/null || true
 }
 
-# Remove what older installs left behind (sign-ins stay in ~/.config/WakeUp).
-remove_legacy() {
-  rm -f "$OLD_APPIMAGE" "$HOME/Applications/WorkHub.AppImage" "$APPS/workhub.desktop"
-  for s in $SIZES; do rm -f "$ICONS/${s}x${s}/apps/workhub.png"; done
-}
+# Remove the AppImage an older install left behind (sign-ins stay in ~/.config/WakeUp).
+remove_legacy() { rm -f "$OLD_APPIMAGE"; }
 
 if [ "${1:-}" = "--uninstall" ]; then
   stop_app
@@ -64,16 +60,13 @@ gtk-update-icon-cache -f -t "$ICONS" >/dev/null 2>&1 || true
 # The app writes its own launcher (with a dock right-click entry per app) and keeps it current.
 "$BIN" --install-desktop
 
-# Dock: take over an old Work Hub pin in place, or pin once.
+# Dock: pin once.
 FAV="$(favorites)"
-if [[ "$FAV" == *"workhub.desktop"* && "$FAV" != *"wakeup.desktop"* ]]; then
-  set_favorites "${FAV//workhub.desktop/wakeup.desktop}"
-elif [[ "$FAV" == *"[]"* ]]; then
+if [[ "$FAV" == *"[]"* ]]; then
   set_favorites "['wakeup.desktop']"
 elif [[ "$FAV" != *"wakeup.desktop"* ]]; then
   set_favorites "${FAV%]*}, 'wakeup.desktop']"
 fi
-FAV="$(favorites)"; [[ "$FAV" == *"workhub.desktop"* ]] && set_favorites "$(echo "$FAV" | drop_fav workhub.desktop)"
 
 remove_legacy
 update-desktop-database "$APPS" 2>/dev/null || true

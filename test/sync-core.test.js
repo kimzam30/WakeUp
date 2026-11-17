@@ -90,3 +90,17 @@ test('remote settings merge field by field around unsent local edits', () => {
   assert.deepEqual(S.settingsKeysChanged(local, { ...local, nickname: 'K', sideWidth: 9 }), ['nickname']);
   assert.ok(!S.SYNCED_SETTINGS.includes('notify'));
 });
+
+test('stillDirty: sent keys are clean, keys edited during the upload stay dirty', () => {
+  const body = { nickname: 'B', theme: 'dark' };
+  // nickname sent and unchanged → clean; theme sent but now 'light' → dirty; weekStart not sent → dirty
+  assert.deepEqual(S.stillDirty(['nickname', 'theme', 'weekStart'], ['nickname', 'theme'], body, { nickname: 'B', theme: 'light', weekStart: 0 }), ['theme', 'weekStart']);
+  // a sent key missing locally doesn't stay dirty forever
+  assert.deepEqual(S.stillDirty(['customApps'], ['customApps'], { customApps: [] }, {}), []);
+});
+
+test('applying the uploaded body keeps the value just sent', () => {
+  const local = { nickname: 'B', theme: 'system' };
+  const body = { nickname: 'B', theme: 'dark' }; // theme came from the cloud, nickname from this device
+  assert.deepEqual(S.remoteSettingsPatch(local, body, []), { theme: 'dark' });
+});

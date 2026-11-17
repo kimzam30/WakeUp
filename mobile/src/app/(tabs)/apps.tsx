@@ -3,11 +3,11 @@
 // Split view puts two apps on screen: stacked top and bottom in a portrait window, side by side in a landscape
 // one, with a draggable divider. The toolbar and the back gesture act on the focused half (outlined).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, BackHandler, Linking, PanResponder, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Linking, PanResponder, Pressable, ScrollView, View } from 'react-native';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { useFocusEffect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '../../lib/haptics';
 import { Button, Empty, IconButton, Sheet, Txt, useLayout } from '../../ui/kit';
 import { AppGlyph, Icon } from '../../ui/Icon';
 import { R, S, useTheme } from '../../ui/theme';
@@ -21,6 +21,15 @@ const STRIP = 36; // per-pane title strip in split view
 
 type Nav = { canGoBack: boolean; loading: boolean; url: string; title: string };
 const openOutside = (url: string) => Linking.openURL(url).catch(() => {});
+// Google refuses sign-in inside an app's web view. Say so, instead of jumping to Chrome (which would sign Chrome in,
+// not WakeUp, and looks like the app closed).
+let googleAsked = 0;
+function googleBlocked(app: WebApp) {
+  if (Date.now() - googleAsked < 3000) return; // one page can try several times in a row
+  googleAsked = Date.now();
+  Alert.alert('Use email to sign in', `Google doesn’t allow signing in from inside other apps. In ${app.name}, choose to continue with your email instead, or use ${app.name} in your browser.`,
+    [{ text: 'Open in browser', onPress: () => openOutside(app.url) }, { text: 'OK', style: 'cancel' }]);
+}
 
 function Glyph({ app, size = 28 }: { app: WebApp; size?: number }) {
   return (
@@ -79,14 +88,13 @@ export default function Apps() {
   const switcher = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: S(2), paddingHorizontal: S(3), alignItems: 'center' }}>
       {apps.map((a) => {
-        const on = shown.includes(a.id); const loaded = openIds.includes(a.id);
+        const on = shown.includes(a.id);
         return (
           <Pressable key={a.id} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={a.name} accessibilityHint={canSplit ? 'Long-press to open beside the current app' : undefined}
-            onPress={() => openApp(a.id)} onLongPress={() => { if (canSplit && focused && a.id !== focused) { Haptics.selectionAsync().catch(() => {}); openSplit(a.id); } }}
+            onPress={() => openApp(a.id)} onLongPress={() => { if (canSplit && focused && a.id !== focused) { haptic('tap'); openSplit(a.id); } }}
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), height: 40, paddingLeft: 6, paddingRight: size === 'compact' && !on ? 6 : S(3), borderRadius: R.pill, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent', borderWidth: 1, borderColor: a.id === focused && split ? c.accent : on ? c.accent : c.line })}>
             <Glyph app={a} size={28} />
             {size !== 'compact' || on ? <Txt kind="small" style={{ fontWeight: '600', color: on ? c.text : c.muted }}>{a.name}</Txt> : null}
-            {loaded && !on ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.faint }} /> : null}
           </Pressable>
         );
       })}
@@ -144,7 +152,7 @@ export default function Apps() {
           const inSplit = !!split && shown.length > 1 && shown.includes(id);
           return (
             <View key={id} style={place(id)} pointerEvents={shown.includes(id) ? 'auto' : 'none'}>
-              {inSplit ? <PaneStrip app={a} title={navRef.current[id]?.title} focused={focused === id} onFocus={() => openApp(id)}
+              {inSplit ? <PaneStrip app={a} focused={focused === id} onFocus={() => openApp(id)}
                 onSwap={() => updateSplit({ a: split!.b, b: split!.a })} onMax={() => closeSplit(split!.a === id ? 'a' : 'b')} onClose={() => closeApp(id)} /> : null}
               <Pane app={a} desktop={a.id === 'teams' || wide} onNav={onNav} setRef={setRef} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
               {navRef.current[id]?.loading ? <View style={{ position: 'absolute', top: inSplit ? STRIP : 0, left: 0, right: 0, height: 2, backgroundColor: c.accent, opacity: 0.6 }} /> : null}
@@ -195,7 +203,7 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { a
         renderLoading={() => <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg }}><ActivityIndicator color={c.accent} /></View>}
         onShouldStartLoadWithRequest={(r) => {
           if (r.url.startsWith('mailto:') || r.url.startsWith('tel:') || r.url.startsWith('intent:')) { openOutside(r.url); return false; }
-          if (GOOGLE_SIGN_IN.test(r.url)) { openOutside(r.url); return false; } // Google blocks sign-in inside apps
+          if (GOOGLE_SIGN_IN.test(r.url)) { googleBlocked(a); return false; }
           return true;
         }}
         renderError={() => (
@@ -212,13 +220,13 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { a
   );
 });
 
-function PaneStrip({ app, title, focused, onFocus, onSwap, onMax, onClose }: { app: WebApp; title?: string; focused: boolean; onFocus: () => void; onSwap: () => void; onMax: () => void; onClose: () => void }) {
+function PaneStrip({ app, focused, onFocus, onSwap, onMax, onClose }: { app: WebApp; focused: boolean; onFocus: () => void; onSwap: () => void; onMax: () => void; onClose: () => void }) {
   const { c } = useTheme();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${app.name}${focused ? ', focused' : ''}`} onPress={onFocus}
       style={{ height: STRIP, flexDirection: 'row', alignItems: 'center', gap: S(2), paddingLeft: S(3), backgroundColor: focused ? c.accentSoft : c.side, borderTopWidth: 2, borderColor: focused ? c.accent : 'transparent' }}>
       <Glyph app={app} size={18} />
-      <Txt kind="small" numberOfLines={1} style={{ flex: 1, fontWeight: '600', color: focused ? c.text : c.muted }}>{title || app.name}</Txt>
+      <Txt kind="small" numberOfLines={1} style={{ flex: 1, fontWeight: '600', color: focused ? c.text : c.muted }}>{app.name}</Txt>
       <SmallBtn icon="split" label="Swap halves" onPress={onSwap} />
       <SmallBtn icon="external" label={`Show only ${app.name}`} onPress={onMax} />
       <SmallBtn icon="close" label={`Close ${app.name}`} onPress={onClose} />
@@ -247,7 +255,7 @@ function Divider({ vertical, at, along }: { vertical: boolean; at: number; along
     onStartShouldSetPanResponderCapture: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { start.current = geo.current.at; setDrag(true); Haptics.selectionAsync().catch(() => {}); },
+    onPanResponderGrant: () => { start.current = geo.current.at; setDrag(true); haptic('tap'); },
     onPanResponderMove: (_e, g) => {
       const { vertical: v, along: len } = geo.current;
       updateSplit({ ratio: Math.min(0.75, Math.max(0.25, (start.current + (v ? g.dy : g.dx)) / len)) });
@@ -258,7 +266,7 @@ function Divider({ vertical, at, along }: { vertical: boolean; at: number; along
       const r = (start.current + (v ? g.dy : g.dx)) / len;
       const snap = [1 / 3, 0.5, 2 / 3].find((x) => Math.abs(x - r) < 0.04);
       updateSplit({ ratio: Math.min(0.75, Math.max(0.25, snap ?? r)) });
-      if (snap) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      if (snap) haptic('light');
     },
     onPanResponderTerminate: () => setDrag(false),
   }), []);

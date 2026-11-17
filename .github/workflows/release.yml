@@ -1,23 +1,60 @@
-# Builds WakeUp for Android (signed APK) and Linux (AppImage) when a version tag is pushed, e.g.
-#   git tag v2.3.0 && git push origin v2.3.0
-# and attaches both to a GitHub Release. Run it by hand from the Actions tab to get the files as artifacts only.
+# Publishes a WakeUp release when the version in package.json changes on main.
 #
-# Repository secrets (Settings → Secrets and variables → Actions):
-#   ANDROID_KEYSTORE_BASE64  base64 of your release keystore (.jks):  base64 -w0 wakeup-release.jks
+#   node scripts/bump-version.js 2.6.0   # sets the version for both apps
+#   git commit -am "WakeUp 2.6.0" && git push   (on main, or merge dev into main)
+#
+# A push to main whose version already has a release (tag v<version>) builds nothing. The release carries:
+#   WakeUp-<v>-linux-x64.tar.gz  the desktop app as installed by scripts/install.sh (what the in-app updater uses)
+#   WakeUp-<v>.AppImage          a single-file desktop app
+#   WakeUp-<v>.apk               the Android app
+#   SHA256SUMS                   checksums; the apps refuse any file that doesn't match
+# Release notes are the commit subjects since the previous release. Run it by hand from the Actions tab to get the
+# files as build artifacts without publishing.
+#
+# Android signing (repository secrets, Settings → Secrets and variables → Actions), from ~/.config/wakeup-signing:
+#   ANDROID_KEYSTORE_BASE64  base64 of wakeup-release.jks:  base64 -w0 wakeup-release.jks
 #   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-# Without them the APK is signed with a throwaway debug key (fine for testing, can't update a release install).
+# mobile/plugins/release-signing.js applies them. Android only installs an update signed with the same key as the
+# installed app, so a release without the key fails instead of shipping an APK that can't update anyone.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          node scripts/bump-version.js --check
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null; then
+            echo "v$V is already released."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
   android:
+    needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,32 +74,28 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx expo prebuild -p android --no-install
-      - name: Release signing
+      - name: Release signing key
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE" ]; then echo "No release keystore secret: using the debug key."; exit 0; fi
-          echo "$KEYSTORE" | base64 -d > android/app/release.jks
-          cat >> android/app/build.gradle <<EOF
-          android.signingConfigs { release { storeFile file('release.jks'); storePassword System.getenv('STORE_PW'); keyAlias System.getenv('ALIAS'); keyPassword System.getenv('KEY_PW') } }
-          android.buildTypes.release.signingConfig android.signingConfigs.release
-          EOF
+          if [ -z "$KEYSTORE" ]; then echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing. Releases must be signed with WakeUp's own key."; exit 1; fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/wakeup-release.jks"
       - name: Build APK
         env:
-          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          WAKEUP_KEYSTORE: ${{ runner.temp }}/wakeup-release.jks
+          WAKEUP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          WAKEUP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          WAKEUP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: cd android && ./gradlew assembleRelease --no-daemon
-      - run: mv android/app/build/outputs/apk/release/app-release.apk "WakeUp-${GITHUB_REF_NAME#v}.apk"
+      - run: mv android/app/build/outputs/apk/release/app-release.apk "WakeUp-${{ needs.version.outputs.version }}.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: android
           path: mobile/WakeUp-*.apk
 
   linux:
+    needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,22 +106,38 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3-gi python3-cairo gir1.2-rsvg-2.0
       - run: npm ci
       - run: npm test
-      - run: npm run dist:appimage
+      - run: python3 scripts/make-icons.py && npx electron-builder --linux dir AppImage
+      - run: tar -czf "dist/WakeUp-${{ needs.version.outputs.version }}-linux-x64.tar.gz" -C dist linux-unpacked
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-appimage
-          path: dist/*.AppImage
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [android, linux]
+    needs: [version, android, linux]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          LAST=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          { echo "What's new in WakeUp ${{ needs.version.outputs.version }}:"; echo;
+            git log --no-merges --pretty='- %s' ${LAST:+$LAST..}HEAD | head -30; } > notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: WakeUp ${{ needs.version.outputs.version }}
+          body_path: notes.md
           files: out/*
-          generate_release_notes: true

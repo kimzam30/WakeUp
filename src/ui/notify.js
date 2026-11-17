@@ -87,3 +87,24 @@ const offlineNotice = () => showNotice({ id: 'net', kind: 'error', title: 'You�
 window.addEventListener('offline', offlineNotice);
 window.addEventListener('online', () => showNotice({ id: 'net', kind: 'success', title: 'Back online', detail: 'Reloading anything that didn’t load.' }));
 if (!navigator.onLine) setTimeout(offlineNotice, 500);
+
+// updates: a quiet heads-up when one is out, progress while it installs, then a restart button
+let updSeen = null;
+hub.onUpdate?.((u) => {
+  const id = 'update';
+  if (u.phase === 'available' && updSeen !== `a${u.latest}`) {
+    updSeen = `a${u.latest}`;
+    showNotice({ id, kind: 'info', title: `WakeUp ${u.latest} is out`, detail: (u.notes || '').split('\n').filter(Boolean).slice(0, 2).join(' · ') || 'One click to update.',
+      actions: [{ label: 'Update now', run: () => hub.update('install') }, { label: 'Later', run: () => {} }] });
+    clearTimeout(NOTICES.get(id)?.timer); // stays until you choose
+  } else if (u.phase === 'downloading') {
+    showNotice({ id, kind: 'progress', title: `Downloading WakeUp ${u.latest}`, detail: `${Math.round((u.progress || 0) * 100)}%`, progress: u.progress || 0, actions: [{ label: 'Cancel', run: () => hub.update('cancel') }] });
+  } else if (u.phase === 'installing') {
+    showNotice({ id, kind: 'busy', title: `Installing WakeUp ${u.latest}…` });
+  } else if (u.phase === 'ready') {
+    showNotice({ id, kind: 'success', title: `WakeUp ${u.latest} is ready`, detail: 'Restart to finish. Your apps and layout come back as they are.', actions: [{ label: 'Restart now', run: () => hub.update('restart') }] });
+    clearTimeout(NOTICES.get(id)?.timer);
+  } else if (u.phase === 'error' && NOTICES.has(id)) {
+    showNotice({ id, kind: 'error', title: 'The update didn’t install', detail: `${u.error || ''} Nothing was changed.`.trim(), actions: [{ label: 'Try again', run: () => hub.update('install') }] });
+  }
+});

@@ -12,6 +12,7 @@ export const Planner: {
   upcoming: (p: PlannerData, from?: Date, days?: number) => (Occurrence & { startsAt: number; endsAt: number })[];
   bucket: (t: { done: boolean; due: string | null }, today: string) => 'done' | 'someday' | 'overdue' | 'today' | 'upcoming';
   ICON_KEYS: string[];
+  STATUS: Record<string, [string, 'bad' | 'info' | 'warn' | 'good']>; CLASS_COLORS: string[];
 } = require('../../../src/ui/planner-core.js');
 
 export const Schema: { cleanPlanner: (raw: unknown) => PlannerData; emptyPlanner: () => PlannerData; newId: (prefix: string) => string } = require('../../../src/shared/planner-schema.js');
@@ -27,6 +28,7 @@ export const SyncCore: {
   settingsDiffer: (a: object, b: object) => boolean;
   settingsKeysChanged: (a: object, b: object) => string[];
   remoteSettingsPatch: (local: object, remote: object, dirty?: string[]) => Record<string, unknown>;
+  stillDirty: (dirty: string[], sentKeys: string[], body: Record<string, unknown>, now: object) => string[];
   trackOffline: (list: string[], d: { upserts: Row[]; deletes: { kind: string; id: string }[] }) => string[];
   hasContent: (rows: Row[]) => boolean;
   plannerHasContent: (p: PlannerData) => boolean;
@@ -36,3 +38,9 @@ export const SyncCore: {
 } = require('../../../src/shared/sync-core.js');
 
 export const Cloud: { url: string; key: string } = require('../../../src/shared/cloud-config.js');
+
+type UpdateRelease = { version: string; name: string; url: string; size: number; sumsUrl: string; notes: string; page: string } | null;
+export const Update: {
+  LATEST: string; isNewer: (latest: string, current: string) => boolean; parseSums: (text: string) => Record<string, string>;
+  pick: (release: unknown, kind: 'apk' | 'tarball' | 'appimage') => UpdateRelease;
+} = require('../../../src/shared/update-core.js');

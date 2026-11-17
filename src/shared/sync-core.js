@@ -80,6 +80,12 @@
     return out;
   }
 
+  // After uploading `body` for `sentKeys`: the keys that still need sending. A key stays dirty if it wasn't in this
+  // upload, or if it was edited again while the upload was in flight (its value now differs from what was sent).
+  function stillDirty(dirty, sentKeys, body, now) {
+    return (dirty || []).filter((k) => !sentKeys.includes(k) || (now && k in now && !same(body?.[k], now[k])));
+  }
+
   // Things deleted on this device while signed out ("kind:id" list). Re-adding an item takes it off the list.
   function trackOffline(list, { upserts, deletes }) {
     const s = new Set(list || []);
@@ -112,7 +118,7 @@
   }
 
   return {
-    SYNCED_SETTINGS, explode, diff, apply, queue, pendingKeys, pickSettings, settingsDiffer, settingsKeysChanged, remoteSettingsPatch,
+    SYNCED_SETTINGS, explode, diff, apply, queue, pendingKeys, pickSettings, settingsDiffer, settingsKeysChanged, remoteSettingsPatch, stillDirty,
     trackOffline, hasContent, plannerHasContent, mergeFirst, firstOutbox, key,
   };
 }));

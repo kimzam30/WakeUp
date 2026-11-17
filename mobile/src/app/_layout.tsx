@@ -7,6 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useStore } from '../lib/store';
 import { startSync } from '../lib/sync';
+import { startUpdates } from '../lib/updater';
 import { listenForTaps, registerTopUp, rescheduleSoon } from '../lib/reminders';
 import { useTheme } from '../ui/theme';
 import { useLayout } from '../ui/kit';
@@ -20,6 +21,7 @@ export default function Root() {
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
     startSync().catch(() => {});
+    startUpdates();
     rescheduleSoon();
     registerTopUp();
     return listenForTaps();

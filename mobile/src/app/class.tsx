@@ -2,8 +2,7 @@
 // Phones: full screen. Tablets: a centred dialog over the timetable, with the weekly sessions in two columns.
 import { useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, View } from 'react-native';
-import { router, useLocalSearchParams, usePreventRemove } from 'expo-router';
-import { useNavigation } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation, usePreventRemove } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Field, IconButton, Segmented, Txt, useLayout } from '../ui/kit';
 import { TimeField } from '../ui/DateField';

@@ -98,5 +98,8 @@
   const classIconKey = (v) => (ICON_KEYS.includes(v) ? v : LEGACY_ICON[v] || '');
   const classColor = (v) => LEGACY_COLOR[String(v).toLowerCase()] || v;
 
-  return { ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
+  // Status chips for one-off changes: [label, tone]. One list for desktop and mobile.
+  const STATUS = { cancelled: ['Cancelled', 'bad'], online: ['Online today', 'info'], moved: ['Moved', 'warn'], 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'] };
+  const CLASS_COLORS = ['#2f6fde', '#7c5cd6', '#1f9d63', '#d0573a', '#c2410c', '#0f8a8a', '#b4417a', '#b7791f'];
+  return { STATUS, CLASS_COLORS, ymd, parse, addDays, mins, at, weekday, startOfWeek, daysBetween, inBreak, teaching, weekOf, occurrencesOn, upcoming, bucket, today: () => ymd(new Date()), ICON_KEYS, classIconKey, classColor };
 }));

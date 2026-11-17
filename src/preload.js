@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('hub', {
   onNotice: listen('notice'),
   onSync: listen('sync'),
   sync: (action) => ipcRenderer.invoke('sync', action),
+  onUpdate: listen('update'),
+  update: (action) => ipcRenderer.invoke('update', action),
   commit: (layout) => ipcRenderer.send('commit', layout),
   bounds: (b) => ipcRenderer.send('bounds', b),
   cover: (on) => ipcRenderer.send('cover', on),

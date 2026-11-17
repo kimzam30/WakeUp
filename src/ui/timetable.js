@@ -4,8 +4,8 @@
 // Timetable: the semester's weekly classes, with one-off changes (cancelled, online, moved, replacement).
 
 const CLASS_ICONS = Planner.ICON_KEYS;
-const CLASS_COLORS = ['#2f6fde', '#7c5cd6', '#1f9d63', '#d0573a', '#c2410c', '#0f8a8a', '#b4417a', '#b7791f'];
-const STATUS_CHIP = { cancelled: ['Cancelled', 'bad'], online: ['Online today', 'info'], moved: ['Moved', 'warn'], 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'] };
+const CLASS_COLORS = Planner.CLASS_COLORS;
+const STATUS_CHIP = Planner.STATUS;
 let HOUR = 56; // px per hour in the week grid; follows the UI scale (layoutWeek)
 
 function weekLabel(first, sem) {

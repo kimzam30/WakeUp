@@ -6,7 +6,7 @@ import {
   type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '../lib/haptics';
 import { Icon } from './Icon';
 import { R, S, T, useTheme } from './theme';
 
@@ -102,7 +102,7 @@ export function Button({ label, icon, kind = 'secondary', onPress, disabled, sty
   return (
     <Pressable
       accessibilityRole="button" accessibilityLabel={label} disabled={disabled}
-      onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
+      onPress={() => { haptic('tap'); onPress?.(); }}
       style={({ pressed }) => [{
         minHeight: small ? 36 : 48, paddingHorizontal: small ? S(3) : S(5), borderRadius: R.pill, backgroundColor: bg,
         borderWidth: kind === 'secondary' ? 1 : 0, borderColor: c.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: S(2),
@@ -145,7 +145,7 @@ export function Chip({ label, tone, icon }: { label: string; tone?: 'bad' | 'inf
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: S(2), height: 24, borderRadius: R.chip, backgroundColor: bg, alignSelf: 'flex-start' }}>
       {icon ? <Icon name={icon} size={12} color={fg} /> : null}
-      <Text style={[T.small, { color: fg, fontWeight: '600', fontSize: 12 }]}>{label}</Text>
+      <Text numberOfLines={1} style={[T.small, { color: fg, fontWeight: '600', fontSize: 12, flexShrink: 1 }]}>{label}</Text>
     </View>
   );
 }
@@ -168,7 +168,7 @@ export function Segmented<V extends string | number>({ value, options, onChange,
       {options.map(([v, l]) => {
         const on = v === value;
         return (
-          <Pressable key={String(v)} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => { Haptics.selectionAsync().catch(() => {}); onChange(v); }}
+          <Pressable key={String(v)} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => { haptic('tap'); onChange(v); }}
             style={{ minHeight: 36, paddingHorizontal: S(3), borderRadius: R.pill, justifyContent: 'center', backgroundColor: on ? c.raised : 'transparent', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.12)' : undefined }}>
             <Text style={[T.small, { color: on ? c.text : c.muted, fontWeight: on ? '600' : '500' }]}>{l}</Text>
           </Pressable>

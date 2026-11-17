@@ -6,14 +6,14 @@ import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
-import { DateField } from '../../ui/DateField';
+import { DateField, TimeField } from '../../ui/DateField';
 import { Icon } from '../../ui/Icon';
 import { R, S, STATUS, useTheme } from '../../ui/theme';
 import { Planner, Schema } from '../../lib/shared';
 import { setPlanner, useStore } from '../../lib/store';
 import { DAYS, KIND, MONTHS, classLabel, classSub, fmtDate, fmtTime } from '../../lib/format';
 import { useToday } from '../../lib/hooks';
-import type { Occurrence, Semester } from '../../lib/types';
+import type { Change, Occurrence, Semester } from '../../lib/types';
 
 const openLink = (url: string) => Linking.openURL(url).catch(() => {});
 
@@ -70,7 +70,7 @@ export default function Timetable() {
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       {!planner.classes.length ? (
-        <Page>{header}<Empty icon="cal" title="Add your classes once" body="Each class repeats every week for the semester, skipping breaks. You can mark a single date as cancelled or online." action={cover ? undefined : <Button kind="primary" icon="plus" label="Add class" onPress={() => router.push('/class')} />} /></Page>
+        <Page>{header}<Empty icon="cal" title="Add your classes once" body="Each class repeats every week for the semester, skipping breaks. You can cancel, move or put a single date online, or add a replacement." action={cover ? undefined : <Button kind="primary" icon="plus" label="Add class" onPress={() => router.push('/class')} />} /></Page>
       ) : view === 'list' ? (
         <Page max={cover ? 420 : 760}>
           {header}
@@ -85,7 +85,7 @@ export default function Timetable() {
                       <ClassIcon cls={o.cls} />
                       <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
                         <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
-                        <Txt kind="small" muted numberOfLines={1}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                        <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
                       </View>
                       {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
                     </Row>
@@ -138,7 +138,8 @@ function WeekGrid({ header, byDay, onPick, picked }: { header: ReactNode; byDay:
   const to = Math.max(18, ...all.map((o) => Math.ceil(Planner.mins(o.end) / 60)));
   const HOUR = 64; const gutter = 44;
   // columns fill the card's measured width; on narrow windows they keep a readable minimum and scroll sideways
-  const col = Math.max(size === 'compact' ? 112 : 96, cardW ? (cardW - 2 - gutter) / shown.length : 0);
+  const col = Math.max(size === 'compact' ? 128 : 112, // wide enough for a whole status chip (“Replacement”)
+     cardW ? (cardW - 2 - gutter) / shown.length : 0);
   const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
   return (
     <Page max={1400}>
@@ -172,15 +173,19 @@ function WeekGrid({ header, byDay, onPick, picked }: { header: ReactNode; byDay:
                     const top = ((Planner.mins(o.start) - from * 60) / 60) * HOUR; const h = ((Planner.mins(o.end) - Planner.mins(o.start)) / 60) * HOUR;
                     const w = (col - 6) / of;
                     const sub = classSub(o.cls, mode);
+                    const chip = STATUS[o.status]; const extra = chip && h >= 44 ? 26 : 0; // the status chip sits at the bottom of the block, like desktop
+                    const dashed = o.status !== 'normal' && o.status !== 'online';
                     return (
-                      <Pressable key={o.key} accessibilityRole="button" accessibilityLabel={`${classLabel(o.cls, mode)} ${fmtTime(o.start)}`} onPress={() => onPick(o)}
+                      <Pressable key={o.key} accessibilityRole="button" accessibilityLabel={`${classLabel(o.cls, mode)} ${fmtTime(o.start)}${chip ? `, ${chip[0]}` : ''}`} onPress={() => onPick(o)}
                         style={({ pressed }) => ({ position: 'absolute', top: top + 2, left: 3 + lane * w, width: w - (of > 1 ? 2 : 0), height: h - 4, borderRadius: 8, borderCurve: 'continuous', padding: S(2), gap: 1, overflow: 'hidden',
                           backgroundColor: `${o.cls.color}${pressed || picked === o.key ? '33' : '1f'}`, borderLeftWidth: 3, borderLeftColor: o.cls.color, opacity: o.live ? 1 : 0.5,
+                          ...(dashed ? { borderWidth: 1, borderLeftWidth: 3, borderStyle: 'dashed' as const, borderColor: o.live ? o.cls.color : c.line } : null),
                           outlineWidth: picked === o.key ? 2 : 0, outlineColor: o.cls.color })}>
                         <Txt kind="small" numberOfLines={1} style={{ fontWeight: '700', textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}</Txt>
-                        {sub && h > 60 ? <Txt kind="small" numberOfLines={1} style={{ fontWeight: '500', fontSize: 12 }}>{sub}</Txt> : null}
-                        {h > 44 ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{[KIND[o.kind], o.section].filter(Boolean).join(' · ')}</Txt> : null}
-                        {h > 76 ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
+                        {sub && h > 60 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontWeight: '500', fontSize: 12 }}>{sub}</Txt> : null}
+                        {h > 44 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{[KIND[o.kind], o.section].filter(Boolean).join(' · ')}</Txt> : null}
+                        {h > 76 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
+                        {chip && h >= 44 ? <View style={{ marginTop: 'auto', maxWidth: '100%' }}><Chip label={chip[0]} tone={chip[1]} /></View> : null}
                       </Pressable>
                     );
                   })}
@@ -200,7 +205,7 @@ function OccurrenceSheet({ o, onClose }: { o: Occurrence | null; onClose: () => 
   if (!o) return <Sheet open={false} onClose={onClose} title="">{null}</Sheet>;
   return (
     <Sheet open onClose={onClose} title={classLabel(o.cls, mode)} footer={<Button kind="secondary" icon="edit" label="Edit class" onPress={() => { onClose(); router.push({ pathname: '/class', params: { id: o.classId } }); }} />}>
-      <OccurrenceBody o={o} onDone={onClose} />
+      <OccurrenceBody key={o.key} o={o} onDone={onClose} />
     </Sheet>
   );
 }
@@ -216,23 +221,58 @@ function SidePanel({ o, onClose }: { o: Occurrence; onClose: () => void }) {
           <Txt kind="title" style={{ flex: 1 }} numberOfLines={2}>{classLabel(o.cls, mode)}</Txt>
           <IconButton icon="close" label="Close details" onPress={onClose} />
         </View>
-        <OccurrenceBody o={o} onDone={onClose} />
+        <OccurrenceBody key={o.key} o={o} onDone={onClose} />
         <Button kind="secondary" icon="edit" label="Edit class" onPress={() => router.push({ pathname: '/class', params: { id: o.classId } })} />
       </ScrollView>
     </View>
   );
 }
 
+const isLink = (v: string) => /^https:\/\/\S+$/i.test(v.trim());
+const NO_CHANGE = { sessionId: null, classId: null, toDate: null, start: null, end: null, venue: '', link: '', note: '' };
+type Form = { date: string | null; start: string; end: string; venue: string; link: string; note: string };
+
+// The same choices as the desktop app: cancel, online, move or replace one date, and undo any of them.
 function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
   const { c } = useTheme();
   const mode = useStore((s) => s.settings.classLabel);
-  const onClose = onDone;
-  const change = (type: 'cancelled' | 'online') => {
-    setPlanner((p) => ({ changes: [...p.changes.filter((x) => !(x.sessionId === o.sessionId && x.date === o.date)), { id: Schema.newId('x'), type, sessionId: o.sessionId, classId: null, date: o.date, toDate: null, start: null, end: null, venue: '', link: '', note: '' }] }));
-    onClose();
+  const [sub, setSub] = useState<null | 'online' | 'move' | 'replace'>(null);
+  const [f, setF] = useState<Form>({ date: o.date, start: o.start, end: o.end, venue: '', link: '', note: '' });
+  const [err, setErr] = useState('');
+  const set = (patch: Partial<Form>) => { setF((x) => ({ ...x, ...patch })); setErr(''); };
+  // one change per class session per date; replacements are separate entries
+  const setChange = (change: Partial<Change> | null) => {
+    setPlanner((p) => {
+      const rest = p.changes.filter((x) => x.id !== o.change?.id && !(x.sessionId && x.sessionId === o.sessionId && x.date === o.date && x.type !== 'replacement'));
+      return { changes: change ? [...rest, { id: Schema.newId('x'), ...NO_CHANGE, date: o.date, ...change } as Change] : rest };
+    });
+    onDone();
   };
-  const undo = () => { setPlanner((p) => ({ changes: p.changes.filter((x) => !(x.sessionId === o.sessionId && x.date === o.date) && x.id !== o.change?.id) })); onClose(); };
-  const changed = o.status !== 'normal';
+  const open = (kind: 'online' | 'move' | 'replace') => {
+    setSub(kind); setErr('');
+    setF(kind === 'move' ? { date: Planner.addDays(o.date, 7), start: o.start, end: o.end, venue: '', link: '', note: '' }
+      : kind === 'replace' ? { date: Planner.addDays(o.date, 1), start: o.start, end: o.end, venue: o.venue, link: '', note: '' }
+        : { date: o.date, start: o.start, end: o.end, venue: '', link: o.link || '', note: '' });
+  };
+  const submit = () => {
+    if (sub === 'online') {
+      if (f.link && !isLink(f.link)) { setErr('Use a full https:// meeting link.'); return; }
+      setChange({ type: 'online', sessionId: o.sessionId, link: f.link.trim() }); return;
+    }
+    const e = !f.date ? 'Pick a date.' : !f.start || !f.end || f.end <= f.start ? 'The end time has to be after the start.' : f.link && !isLink(f.link) ? 'Use a full https:// meeting link.' : '';
+    if (e) { setErr(e); return; }
+    const when = { start: f.start, end: f.end, venue: f.venue.trim(), link: f.link.trim() };
+    if (sub === 'move') setChange({ type: 'moved', sessionId: o.sessionId, toDate: f.date, ...when });
+    else {
+      setPlanner((p) => ({ changes: [...p.changes, { id: Schema.newId('x'), ...NO_CHANGE, type: 'replacement', classId: o.classId, date: f.date!, ...when, note: f.note.trim() } as Change] }));
+      onDone();
+    }
+  };
+  const note = o.status === 'cancelled' ? 'This class is cancelled on this date.'
+    : o.status === 'moved' ? `Moved to ${o.toDate ? fmtDate(o.toDate) : 'another day'}${o.change?.start ? `, ${fmtTime(o.change.start)}` : ''}.`
+      : o.status === 'moved-in' ? `Moved here from ${o.fromDate ? fmtDate(o.fromDate) : 'another day'}.`
+        : o.status === 'replacement' ? `Replacement class${o.note ? `: ${o.note}` : '.'}` : o.status === 'online' ? 'Online for this date only.' : '';
+  const changeable = !!o.sessionId && (o.status === 'normal' || o.status === 'online');
   return (
     <>
       <View style={{ flexDirection: 'row', gap: S(3), alignItems: 'center' }}>
@@ -248,18 +288,43 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
         <Row><Icon name="clock" color={c.muted} size={18} /><Txt style={{ fontVariant: ['tabular-nums'] }}>{`${fmtTime(o.start)} – ${fmtTime(o.end)}`}</Txt></Row><Divider inset={48} />
         <Row><Icon name={o.mode === 'online' ? 'video' : 'pin'} color={c.muted} size={18} /><Txt selectable style={{ flex: 1 }}>{o.mode === 'online' ? 'Online' : o.venue || 'Venue not set'}</Txt></Row>
       </Card>
-      {o.link ? <Button kind="primary" icon="video" label="Join meeting" onPress={() => openLink(o.link)} /> : null}
-      {o.sessionId ? (
-        <View style={{ gap: S(2) }}>
-          <Txt kind="small" muted>Just this date</Txt>
+      {note ? <Txt muted>{note}</Txt> : null}
+      {o.link && o.live ? <Button kind="primary" icon="video" label="Join meeting" onPress={() => openLink(o.link)} /> : null}
+      {sub ? (
+        <View style={{ gap: S(3) }}>
+          <Txt kind="headline">{sub === 'online' ? 'Online this time' : sub === 'move' ? 'Postpone or move' : 'Add a replacement class'}</Txt>
+          {sub !== 'online' ? <>
+            <DateField label={sub === 'move' ? 'New date' : 'Date'} value={f.date} onChange={(date) => set({ date })} />
+            <View style={{ flexDirection: 'row', gap: S(3) }}>
+              <View style={{ flex: 1 }}><TimeField label="Starts" value={f.start} onChange={(start) => set({ start })} /></View>
+              <View style={{ flex: 1 }}><TimeField label="Ends" value={f.end} onChange={(end) => set({ end })} /></View>
+            </View>
+            <Field label="Venue" value={f.venue} onChangeText={(venue) => set({ venue })} placeholder="Same as usual" maxLength={80} />
+          </> : null}
+          <Field label={sub === 'online' ? 'Meeting link (optional)' : 'Meeting link (if online)'} value={f.link} onChangeText={(link) => set({ link })} placeholder="https://…" keyboardType="url" autoCapitalize="none" autoCorrect={false} />
+          {sub === 'replace' ? <Field label="Note" value={f.note} onChangeText={(n) => set({ note: n })} placeholder="e.g. replaces the cancelled lecture on Tuesday" maxLength={200} /> : null}
+          {err ? <Txt kind="small" style={{ color: c.bad }}>{err}</Txt> : null}
           <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
-            {changed ? <Button small icon="reload" label="Undo the change" onPress={undo} /> : <>
-              <Button small icon="ban" label="Cancelled" onPress={() => change('cancelled')} />
-              <Button small icon="video" label="Online this time" onPress={() => change('online')} />
-            </>}
+            <Button kind="primary" small label={sub === 'online' ? 'Make it online' : sub === 'move' ? 'Move class' : 'Add replacement'} onPress={submit} />
+            <Button kind="plain" small label="Cancel" onPress={() => { setSub(null); setErr(''); }} />
           </View>
         </View>
-      ) : null}
+      ) : (
+        <View style={{ gap: S(2) }}>
+          {changeable ? <Txt kind="small" muted>Just this date</Txt> : null}
+          <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
+            {o.change && o.status !== 'replacement' && o.status !== 'moved-in' ? <Button small icon="reload" label="Undo this change" onPress={() => setChange(null)} /> : null}
+            {o.status === 'replacement' ? <Button small kind="danger" icon="trash" label="Remove replacement" onPress={() => setChange(null)} /> : null}
+            {o.status === 'moved-in' ? <Button small icon="reload" label="Undo move" onPress={() => setChange(null)} /> : null}
+            {changeable ? <>
+              {o.status === 'normal' ? <Button small icon="ban" label="Cancelled" onPress={() => setChange({ type: 'cancelled', sessionId: o.sessionId })} /> : null}
+              {o.status === 'normal' ? <Button small icon="video" label="Online" onPress={() => open('online')} /> : null}
+              <Button small icon="cal" label="Postpone / move…" onPress={() => open('move')} />
+            </> : null}
+            <Button small icon="plus" label="Add replacement…" onPress={() => open('replace')} />
+          </View>
+        </View>
+      )}
     </>
   );
 }

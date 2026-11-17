@@ -65,8 +65,8 @@ function kindOf(e: unknown): Kind {
 // "plain" method, which failed the server's verifier check on Android.
 const b64url = (b64: string) => b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function pkce() {
-  const bytes = Crypto.getRandomBytes(48);
-  const verifier = Array.from(bytes, (b) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'[b % 66]).join('');
+  // 64 unreserved characters (RFC 7636 §4.1); 256 is a multiple of 64, so every character is equally likely
+  const verifier = Array.from(Crypto.getRandomBytes(64), (b) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[b & 63]).join('');
   const challenge = b64url(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, { encoding: Crypto.CryptoEncoding.BASE64 }));
   return { verifier, challenge };
 }
@@ -130,7 +130,13 @@ export async function signOut() {
 }
 
 // ---- first sync on this device: merge, nothing lost. Returns false (and stays pending) if it didn't finish.
-export async function firstSync(myGen = gen): Promise<boolean> {
+// one first sync at a time: a local edit made while it runs waits for it instead of starting another
+let firstRun: Promise<boolean> | null = null;
+export function firstSync(myGen = gen): Promise<boolean> {
+  if (!firstRun) firstRun = runFirstSync(myGen).finally(() => { firstRun = null; });
+  return firstRun;
+}
+async function runFirstSync(myGen: number): Promise<boolean> {
   report('syncing');
   try {
     const rows = await fetchRows(null);
@@ -210,7 +216,7 @@ const upsertRows = (rows: Row[]) => sb.from('wakeup_planner_items').upsert(rows.
 export async function flush(): Promise<void> {
   if (!user || expired) return;
   if (!online) { report('offline'); return; }
-  if (needsFirst) { if (!flushing) await firstSync(); return; }
+  if (needsFirst) { await firstSync(); return; }
   if (flushing) { await flushing; if (outbox.length || dirtyKeys.length) scheduleFlush(50); return; }
   const myGen = gen;
   flushing = (async () => {
@@ -239,8 +245,9 @@ export async function flush(): Promise<void> {
         const { data, error } = await sb.from('wakeup_settings').upsert({ data: body, device }, { onConflict: 'user_id' }).select('updated_at').single();
         if (error) throw error;
         if (myGen !== gen) return;
-        dirtyKeys = dirtyKeys.filter((k) => !sentKeys.includes(k)); settingsAt = data.updated_at;
-        if (remote) applyRemoteSettings(remote.data);
+        // what was uploaded is the cloud's copy now: take its other keys, keep anything edited during the upload
+        dirtyKeys = S.stillDirty(dirtyKeys, sentKeys, body, getState().settings); settingsAt = data.updated_at;
+        applyRemoteSettings(body);
       }
       await pull();
       lastSync = new Date().toISOString(); retryIn = 5; save(); report('idle');

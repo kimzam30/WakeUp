@@ -18,7 +18,7 @@ export const BUILTIN_APPS: WebApp[] = [
 ];
 
 const defaultSettings = (): Settings => ({
-  theme: 'system', weekStart: 1, nickname: '', reminders: 10, classLabel: 'code', notify: {}, customApps: [], apps: ['ebwise', 'mail', 'teams'], taskReminder: '08:00',
+  theme: 'system', weekStart: 1, nickname: '', reminders: 10, classLabel: 'code', notify: {}, customApps: [], apps: ['ebwise', 'mail', 'teams'], taskReminder: '08:00', haptics: 'subtle',
 });
 
 export type State = {

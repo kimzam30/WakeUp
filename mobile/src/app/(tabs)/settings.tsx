@@ -8,6 +8,7 @@ import { Icon } from '../../ui/Icon';
 import { R, S, useTheme } from '../../ui/theme';
 import { TimeField } from '../../ui/DateField';
 import { BUILTIN_APPS, closeApp, setOnboarded, setSettings, useStore } from '../../lib/store';
+import { cancelUpdate, checkForUpdate, installUpdate, setAutoUpdate, useUpdate } from '../../lib/updater';
 import { flush, signIn, signOut } from '../../lib/sync';
 import { askPermission, openSystemSettings, permission, rescheduleSoon, type Permission } from '../../lib/reminders';
 import { fmtTime } from '../../lib/format';
@@ -118,7 +119,6 @@ function NotifyCard() {
   const s = useStore((x) => x.settings);
   const [perm, setPerm] = usePermission();
   const ask = async () => { const r = await askPermission(); setPerm(r); if (r !== 'granted') openSystemSettings(); };
-  const notify = (k: string, on: boolean) => setSettings({ notify: { ...s.notify, [k]: on } });
   return (
     <Card>
       {perm !== 'granted' ? <>
@@ -184,7 +184,7 @@ function AppsCard() {
         <Divider />
         <View style={{ padding: S(3) }}><Button small icon="plus" label="Add an app" onPress={() => setAdding(true)} /></View>
       </Card>
-      <Txt kind="small" muted>Apps you add here also appear on your other devices. Google-account sites (like Gemini) can’t sign in inside apps on Android, so they open in your browser.</Txt>
+      <Txt kind="small" muted>Apps you add here also appear on your other devices. Google doesn’t allow “Continue with Google” inside apps, so sign in with your email, or open the app in your browser.</Txt>
       <AddApp open={adding} onClose={() => setAdding(false)} existing={s.customApps} onAdd={(a) => setSettings({ customApps: [...s.customApps, a] })} />
     </View>
   );
@@ -210,14 +210,36 @@ function YouCard() {
       </View>
       <Divider />
       <SetRow title="Theme" stack={!wide}><Segmented label="Theme" value={s.theme} onChange={(theme) => setSettings({ theme })} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} /></SetRow>
+      <Divider />
+      <SetRow title="Vibration" desc={s.haptics === 'off' ? 'Off.' : s.haptics === 'full' ? 'On every tap, plus finishing tasks.' : 'Only when you finish or add a task, or a split snaps into place.'} stack={!wide}>
+        <Segmented label="Vibration" value={s.haptics ?? 'subtle'} onChange={(haptics) => setSettings({ haptics })} options={[['off', 'Off'], ['subtle', 'Subtle'], ['full', 'Full']]} />
+      </SetRow>
     </Card>
   );
 }
 
 function AboutCard() {
+  const { wide } = useLayout();
+  const u = useUpdate();
+  const pct = Math.round(u.progress * 100);
+  const desc = u.phase === 'checking' ? 'Checking for updates…'
+    : u.phase === 'available' ? `WakeUp ${u.latest} is ready to install.${u.notes ? `\n${u.notes}` : ''}`
+      : u.phase === 'downloading' ? `Downloading ${u.latest}… ${pct}%`
+        : u.phase === 'ready' ? `WakeUp ${u.latest} is downloaded. Tap Install; Android asks once to allow installs from WakeUp.`
+          : u.phase === 'error' ? `${u.error ?? 'The update didn’t work.'} Nothing was changed.`
+            : u.phase === 'current' ? 'You have the latest version.' : 'WakeUp checks for a new version a few times a day.';
   return (
     <Card>
-      <SetRow title="WakeUp" desc={`Version ${Constants.expoConfig?.version ?? ''}`} />
+      <SetRow title={`WakeUp ${Constants.expoConfig?.version ?? ''}`} desc={desc} stack={!wide}>
+        <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
+          {u.phase === 'available' ? <Button small kind="primary" icon="download" label="Update now" onPress={() => { installUpdate(); }} />
+            : u.phase === 'downloading' ? <Button small label="Cancel" onPress={cancelUpdate} />
+              : u.phase === 'ready' ? <Button small kind="primary" label="Install" onPress={() => { installUpdate(); }} />
+                : <Button small icon="reload" label="Check for updates" disabled={u.phase === 'checking'} onPress={() => { checkForUpdate(); }} />}
+        </View>
+      </SetRow>
+      <Divider />
+      <SetRow title="Check for updates automatically" desc="Looks on GitHub a few times a day. Nothing installs until you tap Update."><Switch label="Check for updates automatically" value={u.auto} onChange={setAutoUpdate} /></SetRow>
       <Divider />
       <SetRow title="Show the welcome tour again" desc="Your timetable and tasks stay as they are."><Button small label="Show" onPress={() => setOnboarded(false)} /></SetRow>
     </Card>
@@ -247,7 +269,7 @@ function AddApp({ open, onClose, onAdd, existing }: { open: boolean; onClose: ()
   };
   return (
     <Sheet open={open} onClose={onClose} title="Add an app" footer={<><Button kind="plain" label="Cancel" onPress={onClose} /><Button kind="primary" label="Add" onPress={() => make(name, url)} disabled={!url.trim()} /></>}>
-      <Txt kind="small" muted>AI assistants</Txt>
+      <Txt kind="small" muted>AI assistants. Google blocks “Continue with Google” inside apps, so sign in with your email.</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(2) }}>
         {AI.map(([n, u, col]) => <Button key={n} small label={n} onPress={() => make(n, u, col, true)} />)}
       </View>

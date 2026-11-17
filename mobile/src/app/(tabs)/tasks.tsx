@@ -4,7 +4,7 @@
 import { memo, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '../../lib/haptics';
 import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Row, Sheet, Txt, useLayout } from '../../ui/kit';
 import { DateField } from '../../ui/DateField';
 import { Icon } from '../../ui/Icon';
@@ -40,7 +40,7 @@ export default function Tasks() {
   }, [tasks, today]);
 
   const toggle = (t: Task) => {
-    if (!t.done) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    if (!t.done) haptic('success');
     setPlanner((p) => ({ tasks: p.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneAt: x.done ? null : Date.now() } : x)) }));
   };
   const list = (items: Task[]) => <Card>{items.map((t, i) => <TaskRow key={t.id} t={t} first={!i} cls={t.classId ? byId.get(t.classId) : undefined} mode={mode} today={today} picked={twoCol && t.id === editId} onToggle={toggle} onOpen={setEditId} />)}</Card>;
@@ -125,7 +125,7 @@ function QuickAdd({ today }: { today: string }) {
   const add = () => {
     const text = draft.trim(); if (!text) return;
     setPlanner((p) => ({ tasks: [{ id: Schema.newId('t'), text, done: false, due, classId: null, created: Date.now(), doneAt: null }, ...p.tasks] }));
-    setDraft(''); input.current?.clear(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setDraft(''); input.current?.clear(); haptic('light');
   };
   const chip = (v: string | null, l: string, onPress = () => setDue(v)) => {
     const on = due === v;

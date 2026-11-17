@@ -43,7 +43,7 @@ function renderToday() {
 
   // today's classes
   const todays = Planner.occurrencesOn(today, PL);
-  const STATUS = { cancelled: ['Cancelled', 'bad'], moved: ['Moved', 'warn'], online: ['Online', 'info'], replacement: ['Replacement', 'good'], 'moved-in': ['Moved here', 'warn'] };
+  const STATUS = Planner.STATUS;
   const classesCol = PL.classes.length ? `<div>${head('Today’s classes', '<button class="link" data-act="app" data-id="timetable">Timetable</button>')}
     ${todays.length ? `<ul class="rows">${todays.map((o) => {
       const done = Planner.at(today, o.end) < now.getTime(); const live = Planner.at(today, o.start) <= now.getTime() && !done;

@@ -4,8 +4,9 @@
 import { Tabs } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '../../lib/haptics';
 import { Icon } from '../../ui/Icon';
+import { Logo } from '../../ui/Logo';
 import { useLayout } from '../../ui/kit';
 import { R, S, T, useTheme } from '../../ui/theme';
 import { kv, useStore } from '../../lib/store';
@@ -27,7 +28,7 @@ function Bar({ state, navigateToTab }: BarProps) {
   const side = size === 'medium' || size === 'expanded' || sideways;
   const labels = size === 'expanded' && !collapsed;
   // navigateToTab sends tabPress, switches tab, and pops the tab's stack when you tap the tab you're on
-  const go = (i: number) => { if (state.index !== i) Haptics.selectionAsync().catch(() => {}); navigateToTab(state.routes[i].key); };
+  const go = (i: number) => { if (state.index !== i) haptic('tap'); navigateToTab(state.routes[i].key); };
   const items = state.routes.map((r, i) => {
     const t = TABS.find((x) => x[0] === r.name); if (!t) return null;
     const on = state.index === i; const fg = on ? c.accentText : c.muted;
@@ -57,14 +58,14 @@ function Bar({ state, navigateToTab }: BarProps) {
       <View style={{ width: labels ? 232 : sideways ? 72 : 84, backgroundColor: c.side, borderRightWidth: 1, borderColor: c.line, paddingTop: sideways ? insets.top + S(2) : insets.top + S(4), paddingBottom: insets.bottom + S(4), paddingLeft: (labels ? S(3) : S(2)) + (sideways ? insets.left : 0), paddingRight: labels ? S(3) : S(2), gap: sideways ? 0 : S(1) }}>
         {size === 'expanded' ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: labels ? 'space-between' : 'center', marginBottom: S(4), minHeight: 44, paddingLeft: labels ? S(3) : 0 }}>
-            {labels ? <Text style={[T.title, { color: c.text }]}>WakeUp</Text> : null}
+            {labels ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2) }}><Logo size={30} /><Text style={[T.title, { color: c.text }]}>WakeUp</Text></View> : null}
             <Pressable accessibilityRole="button" accessibilityLabel={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} hitSlop={8}
               onPress={() => { const v = !collapsed; collapsedSaved = v; kv.set('nav.collapsed', v); setCollapsed(v); }}
               style={({ pressed }) => ({ width: 40, height: 40, borderRadius: R.input, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? c.hover : 'transparent' })}>
               <Icon name={collapsed ? 'chevR' : 'chevL'} size={18} color={c.muted} />
             </Pressable>
           </View>
-        ) : sideways ? null : <View style={{ height: S(4) }} />}
+        ) : sideways ? null : <View style={{ alignItems: 'center', marginBottom: S(3) }}><Logo size={36} /></View>}
         {items}
       </View>
     );

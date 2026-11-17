@@ -1,6 +1,6 @@
 {
   "name": "wakeup",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Ebwise, Outlook, Teams, your timetable and tasks in one calm window",
   "main": "src/main.js",
   "scripts": {
@@ -23,7 +23,6 @@
     "appId": "my.kimzam.wakeup",
     "productName": "WakeUp",
     "executableName": "wakeup",
-    "artifactName": "WakeUp-${version}.AppImage",
     "files": [
       "src/**/*",
       "build/icons/**/*",
@@ -51,7 +50,10 @@
     "electronLanguages": [
       "en-US"
     ],
-    "compression": "maximum"
+    "compression": "maximum",
+    "appImage": {
+      "artifactName": "WakeUp-${version}.AppImage"
+    }
   },
   "desktopName": "wakeup.desktop",
   "dependencies": {

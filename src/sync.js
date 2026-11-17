@@ -160,7 +160,13 @@ function createSync(o) {
 
   // ---- first sync on this device: merge both sides so nothing is lost, then upload what the cloud lacks.
   // Stays pending (sy.needsFirst) until it finishes, so a failure here is retried rather than forgotten.
-  async function firstSync(myGen = gen) {
+  // one first sync at a time: a local edit made while it runs waits for it instead of starting another
+  let firstRun = null;
+  function firstSync(myGen = gen) {
+    if (!firstRun) firstRun = runFirstSync(myGen).finally(() => { firstRun = null; });
+    return firstRun;
+  }
+  async function runFirstSync(myGen) {
     report('syncing');
     try {
       const rows = await fetchRows(null);
@@ -232,7 +238,7 @@ function createSync(o) {
   const upsertRows = (rows) => sb.from('wakeup_planner_items').upsert(rows.map((r) => ({ kind: r.kind, id: r.id, data: r.data, deleted: !!r.deleted, device: sy.device })), { onConflict: 'user_id,kind,id' });
   async function flush() {
     if (!user || expired) return;
-    if (sy.needsFirst) { if (!flushing) await firstSync(); return; }
+    if (sy.needsFirst) { await firstSync(); return; }
     if (flushing) { await flushing; if (sy.outbox.length || sy.dirtyKeys.length) scheduleFlush(50); return; }
     const myGen = gen;
     flushing = (async () => {
@@ -262,8 +268,9 @@ function createSync(o) {
           const { data, error: e } = await sb.from('wakeup_settings').upsert({ data: body, device: sy.device }, { onConflict: 'user_id' }).select('updated_at').single();
           if (e) throw e;
           if (myGen !== gen) return;
-          sy.dirtyKeys = sy.dirtyKeys.filter((k) => !sentKeys.includes(k)); sy.settingsAt = data.updated_at;
-          if (remote) applyRemoteSettings(remote.data);
+          // what was uploaded is the cloud's copy now: take its other keys, keep anything edited during the upload
+          sy.dirtyKeys = S.stillDirty(sy.dirtyKeys, sentKeys, body, state.settings); sy.settingsAt = data.updated_at;
+          applyRemoteSettings(body);
         }
         await pull();
         lastSync = sy.lastSyncAt = new Date().toISOString(); retryIn = 5;

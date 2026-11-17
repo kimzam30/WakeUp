@@ -4,13 +4,15 @@
 import { useMemo } from 'react';
 import { Linking, Pressable, View } from 'react-native';
 import { router } from 'expo-router';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '../../lib/haptics';
 import { Button, Card, Chip, Columns, Divider, Page, Row, Section, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
 import { AppGlyph, Icon } from '../../ui/Icon';
+import { Logo } from '../../ui/Logo';
 import { R, S, STATUS, T, useTheme } from '../../ui/theme';
 import { Planner } from '../../lib/shared';
 import { allApps, openApp, setPlanner, useStore } from '../../lib/store';
+import { cancelUpdate, installUpdate, skipUpdate, useUpdate } from '../../lib/updater';
 import { DAYS_LONG, KIND, MONTHS, classLabel, classSub, countdown, fmtDate, fmtTime, greeting } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import type { Task } from '../../lib/types';
@@ -20,6 +22,7 @@ const openLink = (url: string) => Linking.openURL(url).catch(() => {});
 export default function Today() {
   const { c } = useTheme();
   const { size, twoCol } = useLayout();
+  const phone = size === 'compact'; // tablets show the logo in the sidebar
   const nowMs = useNow();
   const now = new Date(nowMs);
   const planner = useStore((s) => s.planner);
@@ -36,7 +39,7 @@ export default function Today() {
   const cover = size === 'cover';
   const weekText = week?.week ? `Week ${week.week}${week.break ? ` · ${week.break}` : ''}` : week?.before ? `Semester starts in ${week.days} days` : week?.after ? 'Semester finished' : '';
 
-  const toggle = (t: Task) => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); setPlanner((p) => ({ tasks: p.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneAt: x.done ? null : Date.now() } : x)) })); };
+  const toggle = (t: Task) => { if (!t.done) haptic('success'); setPlanner((p) => ({ tasks: p.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneAt: x.done ? null : Date.now() } : x)) })); };
 
   const nextCard = next ? (
     <Card accent={next.cls.color}>
@@ -110,10 +113,14 @@ export default function Today() {
   const apps = allApps(settings);
   return (
     <Page max={twoCol ? 1180 : 760}>
-      <View style={{ gap: S(1) }}>
-        <Txt kind="small" muted>{`${DAYS_LONG[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]}${weekText ? ` · ${weekText}` : ''}`}</Txt>
-        <Txt kind="display">{`${greeting()}${settings.nickname ? `, ${settings.nickname}` : ''}`}</Txt>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3) }}>
+        {phone ? <Logo size={44} /> : null}
+        <View style={{ flex: 1, gap: S(1) }}>
+          <Txt kind="small" muted>{`${DAYS_LONG[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]}${weekText ? ` · ${weekText}` : ''}`}</Txt>
+          <Txt kind="display">{`${greeting()}${settings.nickname ? `, ${settings.nickname}` : ''}`}</Txt>
+        </View>
       </View>
+      <UpdateBanner />
       <Columns left={<>
       {nextCard}
       {todays.length ? (
@@ -126,7 +133,7 @@ export default function Today() {
                   <ClassIcon cls={o.cls} />
                   <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
                     <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
-                    <Txt kind="small" muted numberOfLines={1}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                    <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
                   </View>
                   {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
                 </Row>
@@ -161,4 +168,31 @@ export default function Today() {
 function Fact({ icon, text }: { icon: string; text: string }) {
   const { c } = useTheme();
   return <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(1) + 2 }}><Icon name={icon} size={15} color={c.muted} /><Txt kind="small" muted>{text}</Txt></View>;
+}
+
+// A new version is out: one tap downloads it and opens Android's installer. "Later" hides it until the next version.
+function UpdateBanner() {
+  const { c } = useTheme();
+  const u = useUpdate();
+  const show = (u.phase === 'available' && u.latest !== u.skipped) || u.phase === 'downloading' || u.phase === 'ready';
+  if (!show) return null;
+  const title = u.phase === 'downloading' ? `Downloading WakeUp ${u.latest}… ${Math.round(u.progress * 100)}%` : u.phase === 'ready' ? `WakeUp ${u.latest} is ready to install` : `WakeUp ${u.latest} is out`;
+  return (
+    <Card accent={c.accent}>
+      <View style={{ padding: S(4), gap: S(3) }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3) }}>
+          <Icon name="download" color={c.accentText} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt kind="headline">{title}</Txt>
+            {u.phase === 'available' && u.notes ? <Txt kind="small" muted numberOfLines={2}>{u.notes.split('\n').filter(Boolean).slice(0, 2).join(' · ')}</Txt> : null}
+          </View>
+        </View>
+        {u.phase === 'downloading' ? <View style={{ height: 4, borderRadius: 2, backgroundColor: c.sunken, overflow: 'hidden' }}><View style={{ width: `${Math.round(u.progress * 100)}%`, height: 4, backgroundColor: c.accent }} /></View> : null}
+        <View style={{ flexDirection: 'row', gap: S(2) }}>
+          {u.phase === 'downloading' ? <Button small label="Cancel" onPress={cancelUpdate} />
+            : <><Button small kind="primary" label={u.phase === 'ready' ? 'Install' : 'Update now'} onPress={() => { installUpdate(); }} />{u.phase === 'available' ? <Button small kind="plain" label="Later" onPress={skipUpdate} /> : null}</>}
+        </View>
+      </View>
+    </Card>
+  );
 }

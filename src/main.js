@@ -4,7 +4,9 @@ const {
   nativeImage, nativeTheme, desktopCapturer, screen, Notification, safeStorage, net, powerMonitor,
 } = require('electron');
 const { createSync } = require('./sync.js');
+const { createUpdater } = require('./updater.js');
 let sync = null; // cloud sync, started once the window is up
+let updater = null; // one-click updates from GitHub releases
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -118,11 +120,23 @@ const isMediaHost = (url) => hostIn(url, MEDIA_HOSTS);
 const isMicHost = (url) => { try { const h = new URL(url).hostname; return (state?.settings?.customApps || []).some((c) => c.mic && new URL(c.url).hostname === h); } catch { return false; } };
 const isInternal = (url, svc) => url.startsWith('about:') || hostIn(url, INTERNAL_HOSTS) || (!!svc?.hosts && hostIn(url, svc.hosts));
 
+// Sites an app signs in through or links to for its own account pages: they open in a WakeUp window with the
+// app's sign-in instead of your browser, so signing in finishes inside WakeUp. Cloudflare's check runs on many.
+const RELATED_HOSTS = {
+  'claude.ai': ['claude.com', 'anthropic.com'], 'chatgpt.com': ['openai.com'], 'gemini.google.com': ['google.com'],
+  'copilot.microsoft.com': ['microsoft.com', 'live.com', 'bing.com'], 'chat.mistral.ai': ['mistral.ai'], 'grok.com': ['x.ai', 'x.com'],
+  'perplexity.ai': [], 'chat.deepseek.com': ['deepseek.com'],
+};
+function customHosts(url) {
+  const h = new URL(url).hostname.replace(/^www\./, '');
+  return [h, ...(RELATED_HOSTS[h] || []), 'challenges.cloudflare.com'];
+}
+
 function rebuildServices(s) {
   const custom = s.customApps.map((c) => ({
     id: c.id, name: c.name, url: c.url, color: c.color, icon: c.icon || null, custom: true, own: c.own,
     partition: c.own ? `persist:${c.id}` : 'persist:m365',
-    hosts: [new URL(c.url).hostname.replace(/^www\./, '')],
+    hosts: customHosts(c.url),
   }));
   const all = [...BUILTIN, ...custom];
   const rank = (id) => { const i = s.order.indexOf(id); return i < 0 ? 1000 + all.findIndex((x) => x.id === id) : i; };
@@ -151,7 +165,7 @@ const settingsDefaults = () => ({
   theme: 'system', zoom: 100, compact: false, labels: true, sideWidth: 0,
   nickname: '', reminders: 10, weekStart: 1, classLabel: 'code', taskReminder: '08:00',
   screenshotDir: '', screenshotCopy: true,
-  customApps: [],
+  customApps: [], autoUpdate: true,
 });
 const oneOf = (v, list, d) => (list.includes(v) ? v : d);
 const bool = (v, d) => (typeof v === 'boolean' ? v : d);
@@ -210,6 +224,7 @@ function cleanSettings(raw, legacy = {}) {
     screenshotDir: path.isAbsolute(text(r.screenshotDir, 1000)) ? text(r.screenshotDir, 1000) : '',
     screenshotCopy: bool(r.screenshotCopy, d.screenshotCopy),
     customApps,
+    autoUpdate: bool(r.autoUpdate, d.autoUpdate),
   };
 }
 
@@ -902,6 +917,8 @@ function createView(id) {
   wc.on('render-process-gone', (_e, d) => {
     if (d.reason === 'clean-exit') return;
     log(`${id} renderer gone: ${d.reason} (${d.exitCode})`);
+    // reload by itself once a minute at most; a page that keeps crashing waits for the Reload button
+    if (Date.now() - (p.crashedAt || 0) > 60e3) { p.crashedAt = Date.now(); setTimeout(() => retry(id), 500); return; }
     setStatus(id, 'crashed', { reason: d.reason });
   });
   wc.on('unresponsive', () => setStatus(id, 'hung'));
@@ -1181,6 +1198,7 @@ function applySettings(patch, { fromCloud = false } = {}) {
   writeDesktopEntry();
   buildTray(); updateBadge(); saveState(); scheduleReminder();
   if (!fromCloud) sync?.settingsChanged(prev, next);
+  if (next.autoUpdate !== prev.autoUpdate) updater?.schedule();
   return sendSettings();
 }
 
@@ -1353,6 +1371,14 @@ function startSync() {
   // coming back to the window: catch up on anything that changed elsewhere (no polling while it's hidden)
   if (win && !win.isDestroyed()) for (const ev of ['show', 'restore']) win.on(ev, () => sync?.onShow());
 }
+ipcMain.handle('update', async (_e, action) => {
+  if (!updater) return null;
+  if (action === 'check') return updater.check();
+  if (action === 'install') { updater.install(); return updater.state(); }
+  if (action === 'cancel') updater.cancel();
+  if (action === 'restart') updater.restart();
+  return updater.state();
+});
 ipcMain.handle('sync', async (_e, action) => {
   if (!sync) return null;
   if (action === 'sign-in') return sync.signIn();
@@ -1516,6 +1542,8 @@ app.whenReady().then(() => {
     writeDesktopEntry();
     scheduleReminder();
     startSync();
+    updater = createUpdater({ app, net, log, getSettings: () => state.settings, onState: (st) => send('update', st) });
+    updater.start();
   });
   nativeTheme.on('updated', () => {
     win?.setBackgroundColor(BG());

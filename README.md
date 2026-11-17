@@ -9,15 +9,15 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.4.0" src="https://img.shields.io/badge/version-2.4.0-ff7a6b">
-  <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-8b6cf6">
+  <img alt="Version 2.5.0" src="https://img.shields.io/badge/version-2.5.0-ff7a6b">
+  <img alt="Platforms: Linux and Android" src="https://img.shields.io/badge/platform-Linux%20%7C%20Android-8b6cf6">
   <img alt="Electron 45" src="https://img.shields.io/badge/Electron-45-22b07d">
-  <img alt="Licence: private" src="https://img.shields.io/badge/licence-private-a59cb4">
+  <img alt="Licence: all rights reserved" src="https://img.shields.io/badge/licence-all%20rights%20reserved-a59cb4">
 </p>
 
 ![Today screen, light theme](docs/screenshots/today-light.png)
 
-WakeUp is a lightweight desktop app that keeps the web apps you use for class together in one window. You see one app at a time, or a few side by side when you need to. A built-in **Timetable** and **Tasks** list work offline. A **Today** screen shows your next class and what's due before you open anything else.
+WakeUp is a lightweight desktop and Android app that keeps the web apps you use for class together in one window. You see one app at a time, or a few side by side when you need to. A built-in **Timetable** and **Tasks** list work offline. A **Today** screen shows your next class and what's due before you open anything else.
 
 ---
 
@@ -57,6 +57,8 @@ WakeUp is a lightweight desktop app that keeps the web apps you use for class to
 | **Find in page** | `Ctrl+F` in any app, including popped-out windows. |
 | **Your own apps and AI assistants** | Add any https website with its own sign-in or your Microsoft 365 one. Settings, Apps has one-click ChatGPT, Claude, Gemini, Copilot, Perplexity, DeepSeek, Grok and Le Chat. Each one you add keeps its own sign-in, so the same AI can be added twice for two accounts, and you can allow its microphone for voice chat. |
 | **Easy on your laptop** | Apps you can't see go to sleep after a while and wake where you left off. Timetable and Tasks are drawn by WakeUp itself, so they cost no extra processes. |
+| **Sync across your devices** | Sign in with Google (Settings → Account and sync) and your timetable, tasks and a few settings follow you between the laptop, your phone and your tablet. Edits made offline upload when you're back online. Signing in is optional; without it everything stays on the device. |
+| **Android phone and tablet** | The same Today, Timetable, Tasks and apps on Android. Phones get a bottom bar (icons only on a Galaxy Z Flip cover screen); tablets get a rail in portrait and a labelled sidebar in landscape, and two apps can share the screen. |
 | **Clean light and dark themes** | Neutral surfaces, thin borders and one blue accent; colour is kept for app icons, class colours and status tags. It follows your system, or you can pick one. |
 
 ## Screenshots
@@ -93,7 +95,17 @@ Your sign-ins, timetable and tasks are kept.
 
 **Open just one app:** right-click WakeUp in the dock and pick it (for example Ebwise). Nothing else loads.
 
-To update later, pull the latest code and run `npm run dist && bash scripts/install.sh` again.
+### Updating
+
+WakeUp checks GitHub for a new version when it starts and every few hours. When one is out, a notice appears at the bottom of the sidebar: click **Update now**, then **Restart now**. Settings → About → Updates has the same buttons and an **auto-check** switch. Every download is checked against the release's checksums before anything is replaced, and the old version is kept aside until the next start, so a failed update changes nothing.
+
+One-click updates work for WakeUp installed with `scripts/install.sh` or run as an AppImage. When running from source, pull the latest code and run `npm run dist && bash scripts/install.sh` again.
+
+### Android
+
+Download `WakeUp-<version>.apk` from the [latest release](https://github.com/kimzam30/WakeUp/releases/latest) on your phone or tablet and open it. Android asks once to allow installs from your browser or file manager. To build it yourself, see [Development](#development).
+
+After that, WakeUp updates itself: when a new version is out, Today shows a banner. Tap **Update now** and Android's installer opens with one **Install** button (the first time, it asks you to allow installs from WakeUp). Settings → About has a **Check for updates** button.
 
 ## Using WakeUp
 
@@ -178,7 +190,9 @@ Open with `Ctrl+,`, the sliders icon in the sidebar, or **Settings…** in the t
 
 ## Privacy and your data
 
-- **Everything stays on your computer.** WakeUp has no account, no server and no telemetry.
+- **No telemetry.** WakeUp doesn't track you or report usage anywhere.
+- **Sync is optional.** If you sign in with Google, your timetable (classes, one-off changes and the semester), your tasks and a few settings (theme, week start, nickname, reminders, class label style, task reminder time and your custom apps) are stored in a Supabase database, where row-level security keeps them readable by your account only. Window layouts, folders and sign-ins to your apps never leave the device. Signing out keeps the local copy.
+- On the desktop the sync sign-in is stored in `~/.config/WakeUp/auth.bin`, encrypted with your system keyring when one is available (Settings warns you if it isn't).
 - Settings, layout, timetable and tasks are in `~/.config/WakeUp/state.json`, with a backup copy at `state.json.bak`.
 - Sign-ins are kept by Electron in separate session partitions:
   - Microsoft 365 apps share one;
@@ -224,9 +238,18 @@ src/
     find.js          find-in-page bar
     pop.html/.js     pop-out windows
     ui.css           the theme (light and dark)
+  updater.js         one-click updates from GitHub Releases (checksummed, keeps the old version aside)
+  sync.js            cloud sync for the desktop (Google sign-in through Supabase, outbox, live updates)
+  shared/            code used by both apps: planner schema, sync logic, cloud config
+mobile/              the Android app (Expo / React Native, Expo Router); see mobile/AGENTS.md
+supabase/            database migrations and setup notes for sync
+test/                unit tests for the shared sync logic (npm test)
 scripts/
   install.sh         build and install for the current user
   make-icons.py      renders the app icons
+  bump-version.js    sets the version for both apps
+.github/workflows/
+  release.yml        publishes a GitHub Release (desktop + Android) when the version changes on main
 ```
 
 ```bash
@@ -234,7 +257,36 @@ npm start                                   # run from source
 WAKEUP_PROFILE=/tmp/wakeup-test npm start   # run with a throwaway profile (your real sign-ins stay untouched)
 npm run dist                                # unpacked build in dist/linux-unpacked
 npm run dist:appimage                       # optional single-file AppImage
+npm test                                    # shared sync logic tests
 ```
+
+The Android app lives in `mobile/`:
+
+```bash
+cd mobile && npm ci
+npx expo run:android                        # development build on a connected device
+npx tsc --noEmit && npx expo lint           # typecheck and lint
+```
+
+`mobile/android` is generated (`expo prebuild`) and not committed; native settings belong in `mobile/app.json`.
+
+### Releasing
+
+Both apps share one version, kept in `package.json`:
+
+```bash
+node scripts/bump-version.js 2.6.0   # sets it for the desktop and Android apps (Android versionCode 20600)
+```
+
+Commit and push to `main`, or merge `dev` into `main`. The **Release** workflow builds the desktop tarball, the AppImage and the APK, writes `SHA256SUMS`, and publishes a GitHub Release named after the version, with the commit subjects since the last release as notes. A push whose version already has a release builds nothing. Installed apps see the new version within a few hours.
+
+Android only installs an update signed with the same key as the app already on the device, so every release is signed with WakeUp's own key (`mobile/plugins/release-signing.js`). GitHub gets it from repository secrets (listed at the top of `.github/workflows/release.yml`), and a release without it fails rather than shipping an APK that can't update anyone. For a local build that installs over a release:
+
+```bash
+. ~/.config/wakeup-signing/env && cd mobile/android && ./gradlew assembleRelease
+```
+
+Keep a backup of `~/.config/wakeup-signing` somewhere safe: if the key is lost, installed copies can't be updated and have to be reinstalled.
 
 Logs are written to `~/.config/WakeUp/logs/main.log` (Settings → About → Open log folder). Everything coming from disk or the UI is validated in `main.js` (`cleanSettings`, `cleanLayout`, `cleanPlanner`, `cleanFiles`), so a damaged file resets the bad values instead of crashing the app.
 
@@ -251,13 +303,20 @@ Logs are written to `~/.config/WakeUp/logs/main.log` (Settings → About → Ope
 
 ## Roadmap
 
-- Do Not Disturb during classes (mute notifications while a class is on).
-- Per-app zoom that's remembered.
-- Attach screenshots and files to tasks.
-- Optional sync of tasks with Microsoft To Do.
+Next up (2.5):
+
+- A tablet layout that matches the desktop, with smoother motion and swipe gestures.
+- Replacement and move autofill, tasks linked to classes, and a Pomodoro timer.
+- Accent colours, a customizable Today page, app logos and your Google profile picture.
+- Open the same app in a second tab, and NotebookLM.
+- Licence, privacy page and security hardening.
+
+Later: Do Not Disturb during classes, per-app zoom, and attaching files to tasks.
 
 ## Credits and licence
 
-Built with [Electron](https://www.electronjs.org/). The interface uses [Inter](https://rsms.me/inter/), bundled in `src/ui/fonts` under the SIL Open Font Licence (`src/ui/fonts/OFL.txt`).
+Built with [Electron](https://www.electronjs.org/), [Expo](https://expo.dev/) and [Supabase](https://supabase.com/). The interface uses [Inter](https://rsms.me/inter/), bundled in `src/ui/fonts` under the SIL Open Font Licence (`src/ui/fonts/OFL.txt`).
 
-© kimzam. All rights reserved. This is a private project and is not licensed for redistribution.
+© 2026 kimzam. All rights reserved. The source is public to read, but it isn't licensed for reuse or redistribution.
+
+WakeUp is an independent student project and isn't affiliated with or endorsed by Multimedia University, Microsoft, Google, Anthropic, OpenAI or any other service it opens.

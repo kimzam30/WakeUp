@@ -61,7 +61,7 @@ const G: Record<string, string> = {
   calendar: 'M7 2h2v2h6V2h2v2h2.5A1.5 1.5 0 0 1 21 5.5v14a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-14A1.5 1.5 0 0 1 4.5 4H7zM5 9v10h14V9zm2 2h3v3H7z',
   teams: 'M3 18c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5v1H3zm13.5-4.3c2.6.2 4.5 1.9 4.5 4.3v1h-4.5v-1c0-1.6-.6-3.1-1.6-4.2.5-.1 1-.1 1.6-.1z',
 };
-export function AppGlyph({ id, name, size = 18 }: { id: string; name: string; size?: number }) {
+export function AppGlyph({ id, size = 18 }: { id: string; name?: string; size?: number }) {
   const d = G[id];
   if (!d) return null;
   return (
@@ -70,5 +70,4 @@ export function AppGlyph({ id, name, size = 18 }: { id: string; name: string; si
       {id === 'teams' ? <><Circle cx="9" cy="7.5" r="3" /><Circle cx="17" cy="8.5" r="2.2" /></> : null}
     </Svg>
   );
-  void name;
 }
