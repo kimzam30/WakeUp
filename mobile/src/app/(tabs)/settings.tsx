@@ -2,6 +2,7 @@
 // Phones get one grouped list; landscape tablets get sections on the left and details on the right.
 import { useEffect, useState } from 'react';
 import { Alert, AppState, Pressable, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import { Button, Card, Divider, Field, Page, Row, Section, Segmented, Sheet, Switch, Txt, useLayout } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
@@ -13,6 +14,8 @@ import { flush, signIn, signOut } from '../../lib/sync';
 import { askPermission, openSystemSettings, permission, rescheduleSoon, type Permission } from '../../lib/reminders';
 import { fmtTime } from '../../lib/format';
 import type { WebApp } from '../../lib/types';
+import { Look } from '../../lib/shared';
+import { Avatar } from '../../ui/Avatar';
 
 const AI: [string, string, string][] = [
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
@@ -26,7 +29,11 @@ const SECTIONS: [SecId, string, string][] = [['sync', 'Account and sync', 'cloud
 export default function Settings() {
   const { c } = useTheme();
   const { twoCol } = useLayout();
-  const [tab, setTab] = useState<SecId>('sync');
+  // Today's "Customize" opens Appearance; after that the list on the left decides
+  const { section, at } = useLocalSearchParams<{ section?: SecId; at?: string }>();
+  const [pick, setPick] = useState<{ id: SecId; at?: string }>({ id: 'sync' });
+  const tab: SecId = section && at && at !== pick.at && SECTIONS.some((x) => x[0] === section) ? section : pick.id;
+  const setTab = (id: SecId) => setPick({ id, at });
   if (!twoCol) {
     return (
       <Page>
@@ -84,7 +91,7 @@ function SyncCard() {
   return (
     <Card>
       {sync.signedIn ? <>
-        <Row><Icon name="cloud" color={bad ? c.bad : c.accentText} /><View style={{ flex: 1 }}><Txt kind="headline">{sync.name || sync.email}</Txt><Txt kind="small" muted style={bad ? { color: c.bad } : undefined}>{sync.name ? `${sync.email} · ` : ''}{syncText}</Txt>
+        <Row><Avatar sync={sync} size={40} /><View style={{ flex: 1 }}><Txt kind="headline">{sync.name || sync.email}</Txt><Txt kind="small" muted style={bad ? { color: c.bad } : undefined}>{sync.name ? `${sync.email} · ` : ''}{syncText}</Txt>
           {sync.rejected ? <Txt kind="small" style={{ color: c.bad, marginTop: 4 }}>{`${n(sync.rejected, 'item')} couldn’t sync and stay on this device only.`}</Txt> : null}</View></Row>
         <Divider />
         <View style={{ flexDirection: 'row', gap: S(2), padding: S(3), flexWrap: 'wrap' }}>
@@ -203,6 +210,7 @@ function YouCard() {
     return () => clearTimeout(t);
   }, [nick, typing, s.nickname]);
   return (
+    <View style={{ gap: S(4) }}>
     <Card>
       <View style={{ padding: S(4), gap: S(2) }}>
         <Field label="Your nickname" value={nick} onChangeText={(v) => { setTyping(true); setNick(v); }} onBlur={() => setTyping(false)} placeholder="e.g. Kim" maxLength={30} returnKeyType="done" />
@@ -214,9 +222,75 @@ function YouCard() {
       <SetRow title="Vibration" desc={s.haptics === 'off' ? 'Off.' : s.haptics === 'full' ? 'On every tap, plus finishing tasks.' : 'Only when you finish or add a task, or a split snaps into place.'} stack={!wide}>
         <Segmented label="Vibration" value={s.haptics ?? 'subtle'} onChange={(haptics) => setSettings({ haptics })} options={[['off', 'Off'], ['subtle', 'Subtle'], ['full', 'Full']]} />
       </SetRow>
+      <Divider />
+      <SetRow title="Accent colour" desc={`${Look.ACCENTS.find((a) => a[0] === (s.accent ?? 'blue'))?.[1] ?? 'Blue'}. Buttons, links and highlights; it follows you to your other devices.`} stack>
+        <Swatches value={s.accent ?? 'blue'} onChange={(accent) => setSettings({ accent })} />
+      </SetRow>
     </Card>
+    <TodayCard />
+    </View>
   );
 }
+
+function Swatches({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { c } = useTheme();
+  return (
+    <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
+      {Look.ACCENTS.map(([id, name, light]) => {
+        const on = id === value;
+        return (
+          <Pressable key={id} accessibilityRole="radio" accessibilityLabel={name} accessibilityState={{ checked: on }} hitSlop={4} onPress={() => onChange(id)}
+            style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: on ? light[0] : 'transparent' }}>
+            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: light[0], alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.line }}>
+              {on ? <Icon name="check" size={16} color="#fff" stroke={2.4} /> : null}
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Today's sections: order and which show. Synced; the phone, tablet and computer each lay them out to fit.
+function TodayCard() {
+  const { c } = useTheme();
+  const today = useStore((x) => x.settings.today);
+  const t = Look.cleanToday(today);
+  return (
+    <View style={{ gap: S(2) }}>
+      <Txt kind="headline">Today page</Txt>
+      <Txt kind="small" muted>Choose what Today shows and in what order. It syncs; your phone, tablet and computer each lay it out to fit.</Txt>
+      <Card>
+        {t.order.map((id, i) => {
+          const [, name, desc] = Look.TODAY.find((x) => x[0] === id)!; const on = !t.hidden.includes(id);
+          return (
+            <View key={id}>
+              {i ? <Divider inset={16} /> : null}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingVertical: S(3), paddingLeft: S(4), paddingRight: S(3) }}>
+                <View style={{ flex: 1, gap: 2, opacity: on ? 1 : 0.55 }}><Txt kind="headline" style={{ fontWeight: '500' }}>{name}</Txt><Txt kind="small" muted>{desc}</Txt></View>
+                <MoveBtn dir={-1} name={name} disabled={i === 0} onPress={() => setSettings({ today: Look.moveToday(t, id, -1) })} color={c.muted} />
+                <MoveBtn dir={1} name={name} disabled={i === t.order.length - 1} onPress={() => setSettings({ today: Look.moveToday(t, id, 1) })} color={c.muted} />
+                <Switch label={`Show ${name}`} value={on} onChange={(v) => setSettings({ today: Look.showToday(t, id, v) })} />
+              </View>
+            </View>
+          );
+        })}
+        <Divider />
+        <View style={{ padding: S(3) }}><Button small kind="plain" label="Reset to default" onPress={() => setSettings({ today: Look.todayDefault() })} /></View>
+      </Card>
+    </View>
+  );
+}
+function MoveBtn({ dir, name, disabled, onPress, color }: { dir: 1 | -1; name: string; disabled: boolean; onPress: () => void; color: string }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`Move ${name} ${dir < 0 ? 'up' : 'down'}`} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} hitSlop={4}
+      style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.3 : 1, backgroundColor: pressed ? c.hover : 'transparent' })}>
+      <View style={{ transform: [{ rotate: dir < 0 ? '-90deg' : '90deg' }] }}><Icon name="chevR" size={16} color={color} /></View>
+    </Pressable>
+  );
+}
+
 
 function AboutCard() {
   const { wide } = useLayout();

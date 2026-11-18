@@ -1,6 +1,6 @@
 'use strict';
 /* global hub, PL, WEEK_START, Planner, savePlanner, esc, $, $$, paint, svg, glyph, btnSvg, newId, fmtDate, fmtTime, classLabel, classSub, classIcon, KIND, DAYS_LONG, MONTHS, store,
-   SV, BY, L, SET, DL, SHOTS, unread, leaves, openPane, toggleSettings, toggleDownloads, splitTitle */
+   SV, BY, L, SET, DL, SHOTS, unread, leaves, openPane, toggleSettings, toggleDownloads, splitTitle, LookCore, setTab:writable */
 /* eslint-disable no-unused-vars */
 // Today: the start screen. Reads like a page: greeting, next class, today's classes beside tasks due, apps, recent files.
 
@@ -77,13 +77,25 @@ function renderToday() {
     <div class="eyebrow">${DAYS_LONG[now.getDay()]}, ${now.getDate()} ${MONTHS[now.getMonth()]}${weekChip ? ` <span class="chip">${esc(weekChip)}</span>` : ''}</div>
     <h1>${esc(greeting())}${name ? `, ${esc(name)}` : ''}</h1>
     ${askName ? `<form class="nick" autocomplete="off"><label for="nick">What should WakeUp call you?</label><input id="nick" name="nick" maxlength="30" placeholder="Your nickname"><button class="btn primary small">Save</button><button type="button" class="btn small ghost" data-act="nick-skip">Not now</button></form>` : ''}
-    <section>${next}</section>
-    <section class="cols${classesCol ? '' : ' one'}">${classesCol}${tasksCol}</section>
-    <section>${apps}</section>
-    ${recentSec ? `<section>${recentSec}</section>` : ''}
+    ${layoutHtml({ next, classes: classesCol, tasks: tasksCol, apps, recent: recentSec })}
+    <div class="today-foot"><button class="link" data-act="customize">${btnSvg('settings')}Customize Today</button></div>
   </div>`;
   paint(el);
   if (keep !== null) { const i = $('[name="task"]', el); i.value = keep; i.focus(); }
+}
+
+// The sections in the order you chose (Settings → Appearance). Today's classes and tasks sit side by side when
+// they come one after the other; everything else takes the full width.
+function layoutHtml(parts) {
+  const ids = LookCore.todaySections(SET.today, ['next', 'classes', 'tasks', 'apps', 'recent']).filter((id) => parts[id]);
+  if (!ids.length) return '<p class="muted today-empty">Every section is hidden. Choose what Today shows with Customize Today below.</p>';
+  const out = [];
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]; const nx = ids[i + 1];
+    if ((id === 'classes' && nx === 'tasks') || (id === 'tasks' && nx === 'classes')) { out.push(`<section class="cols">${parts[id]}${parts[nx]}</section>`); i++; continue; }
+    out.push(`<section>${parts[id]}</section>`);
+  }
+  return out.join('');
 }
 
 function onTodayClick(e) {
@@ -95,6 +107,7 @@ function onTodayClick(e) {
   else if (act === 'downloads') toggleDownloads(true);
   else if (act === 'dl') { if (b.dataset.view === 'true') hub.viewDownload(id, 'full'); else hub.download(id, 'open'); }
   else if (act === 'shot') hub.shotAction(id, 'view', 'full');
+  else if (act === 'customize') { setTab = 'appearance'; toggleSettings(true); $('#settings .set-body [data-today]')?.scrollIntoView({ block: 'start' }); }
   else if (act === 'nick-skip') { store.set('nickDismissed', true); renderToday(); }
   else if (act === 'task') {
     const tid = b.closest('[data-id]').dataset.id;

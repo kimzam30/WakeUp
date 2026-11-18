@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { haptic } from '../../lib/haptics';
 import { Icon } from '../../ui/Icon';
 import { AppTile } from '../../ui/AppTile';
+import { Avatar } from '../../ui/Avatar';
 import { Logo } from '../../ui/Logo';
 import { useLayout } from '../../ui/kit';
 import { R, S, T, useTheme } from '../../ui/theme';
@@ -68,6 +69,7 @@ function SideBar({ state, navigateToTab }: BarProps) {
   const apps = useMemo(() => allApps(settings), [settings]);
   const shown = useStore((s) => (s.split ? `${s.split.a} ${s.split.b}` : s.activeApp ?? ''));
   const focused = useStore(focusedApp);
+  const sync = useStore((s) => s.sync);
   const [collapsed, setCollapsed] = useState(collapsedSaved);
   const labels = size === 'expanded' && !collapsed;
   const route = state.routes[state.index]?.name;
@@ -80,7 +82,7 @@ function SideBar({ state, navigateToTab }: BarProps) {
   const openOne = (id: string) => { if (route !== 'apps' || focused !== id) haptic('tap'); openApp(id); tab('apps'); };
 
   // one row: an icon or tile, then (with labels) its name and a count
-  const item = (key: string, label: string, icon: ReactNode, on: boolean, onPress: () => void, badge = 0, soft = false, onLongPress?: () => void) => (
+  const item = (key: string, label: string, icon: ReactNode, on: boolean, onPress: () => void, badge = 0, soft = false, onLongPress?: () => void, end?: ReactNode) => (
     <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={badge ? `${label}, ${badge} due` : label} onPress={onPress} onLongPress={onLongPress} accessibilityHint={onLongPress ? 'Long-press to open beside the app on screen' : undefined}
       style={({ pressed }) => ({
         flexDirection: labels ? 'row' : 'column', alignItems: 'center', justifyContent: labels ? 'flex-start' : 'center', gap: labels ? S(3) : 2,
@@ -92,6 +94,7 @@ function SideBar({ state, navigateToTab }: BarProps) {
       {badge ? (labels
         ? <Text style={[T.small, { color: c.accentText, fontWeight: '700', fontVariant: ['tabular-nums'] }]}>{badge}</Text>
         : <View style={{ position: 'absolute', top: 4, right: 12, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{badge}</Text></View>) : null}
+      {end}
     </Pressable>
   );
   const page = (name: string, label: string, icon: string, badge = 0) => {
@@ -128,7 +131,14 @@ function SideBar({ state, navigateToTab }: BarProps) {
         }) : page('apps', 'Apps', 'apps')}
       </ScrollView>
       <View style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: S(2) }}>
-        {page('settings', 'Settings', 'settings')}
+        {/* signed in: your profile picture sits beside Settings (or takes the gear's place on the rail) */}
+        {sync.signedIn ? (() => {
+          const on = route === 'settings';
+          const pic = <Avatar sync={sync} size={labels ? 24 : 30} />;
+          return labels
+            ? item('settings', 'Settings', <Icon name="settings" size={20} color={on ? c.text : c.faint} />, on, () => tab('settings'), 0, false, undefined, pic)
+            : item('settings', `Settings, signed in as ${sync.name || sync.email}`, pic, on, () => tab('settings'));
+        })() : page('settings', 'Settings', 'settings')}
       </View>
     </View>
   );

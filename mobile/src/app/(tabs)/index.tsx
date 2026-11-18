@@ -1,6 +1,7 @@
 // Today: greeting, semester week, the next class with a countdown and Join button, today's classes,
-// tasks due, and your apps. On the Z Flip's cover screen it shrinks to the next class and what's due; on a
-// tablet it splits into two columns (classes on the left, tasks and apps on the right).
+// tasks due, and your apps, in the order you chose (Settings → Appearance; it syncs). On the Z Flip's cover
+// screen it shrinks to the next class and what's due; on a tablet it splits into two columns (classes on the
+// left, tasks and apps on the right), each in your order.
 import { useMemo } from 'react';
 import { Linking, Pressable, View } from 'react-native';
 import { router } from 'expo-router';
@@ -11,7 +12,7 @@ import { Icon } from '../../ui/Icon';
 import { AppTile } from '../../ui/AppTile';
 import { Logo } from '../../ui/Logo';
 import { R, S, STATUS, T, useTheme } from '../../ui/theme';
-import { Planner } from '../../lib/shared';
+import { Look, Planner } from '../../lib/shared';
 import { allApps, openApp, setPlanner, useStore } from '../../lib/store';
 import { cancelUpdate, installUpdate, skipUpdate, useUpdate } from '../../lib/updater';
 import { DAYS_LONG, KIND, MONTHS, classLabel, classSub, countdown, fmtDate, fmtTime, greeting } from '../../lib/format';
@@ -88,11 +89,10 @@ export default function Today() {
       </Card>
     </Section>
   );
-  // tablets have room for what's coming this week too
-  const soonCard = twoCol && soon.length ? (
+  const soonCard = soon.length ? (
     <Section title="Coming up this week">
       <Card>
-        {soon.slice(0, 6).map((t, i) => (
+        {soon.slice(0, twoCol ? 6 : 4).map((t, i) => (
           <View key={t.id}>
             {i ? <Divider inset={16} /> : null}
             <Row onPress={() => router.navigate('/tasks')}>
@@ -115,6 +115,53 @@ export default function Today() {
   }
 
   const apps = allApps(settings);
+  const parts: Record<string, React.ReactNode> = {
+    next: nextCard,
+    classes: todays.length ? (
+      <Section title="Today's classes">
+        <Card>
+          {todays.map((o, i) => (
+            <View key={o.key}>
+              {i ? <Divider inset={64} /> : null}
+              <Row onPress={() => router.navigate('/timetable')}>
+                <ClassIcon cls={o.cls} />
+                <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
+                  <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
+                  <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                  {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
+                </View>
+                {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
+              </Row>
+            </View>
+          ))}
+        </Card>
+      </Section>
+    ) : null,
+    tasks: tasksCard,
+    week: soonCard,
+    apps: apps.length ? (
+      <Section title="Your apps">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
+          {apps.map((a) => (
+            <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={() => { openApp(a.id); router.navigate('/apps'); }}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingHorizontal: S(3), height: 48, borderRadius: R.input, borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.raised })}>
+              <AppTile app={a} size={28} />
+              <Txt style={[T.body, { fontWeight: '500' }]}>{a.name}</Txt>
+            </Pressable>
+          ))}
+        </View>
+      </Section>
+    ) : null,
+  };
+  const order = Look.todaySections(settings.today, ['next', 'classes', 'tasks', 'week', 'apps']).filter((id) => parts[id]);
+  const show = (ids: string[]) => ids.map((id) => <View key={id} style={{ gap: S(3) }}>{parts[id]}</View>);
+  // tablets: classes on the left, tasks and apps on the right, each side in your order
+  const left = order.filter((id) => id === 'next' || id === 'classes'); const right = order.filter((id) => id !== 'next' && id !== 'classes');
+  const customize = (
+    <View style={{ alignItems: 'center' }}>
+      <Button kind="plain" small icon="settings" label="Customize Today" onPress={() => router.navigate({ pathname: '/settings', params: { section: 'you', at: String(nowMs) } })} />
+    </View>
+  );
   return (
     <Page max={twoCol ? 1180 : 760}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3) }}>
@@ -125,45 +172,9 @@ export default function Today() {
         </View>
       </View>
       <UpdateBanner />
-      <Columns left={<>
-      {nextCard}
-      {todays.length ? (
-        <Section title="Today's classes">
-          <Card>
-            {todays.map((o, i) => (
-              <View key={o.key}>
-                {i ? <Divider inset={64} /> : null}
-                <Row onPress={() => router.navigate('/timetable')}>
-                  <ClassIcon cls={o.cls} />
-                  <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
-                    <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
-                    <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.status === 'cancelled' ? '' : o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
-                    {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
-                  </View>
-                  {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
-                </Row>
-              </View>
-            ))}
-          </Card>
-        </Section>
-      ) : null}
-      </>} right={<>
-      {tasksCard}
-      {soonCard}
-      {apps.length ? (
-        <Section title="Your apps">
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
-            {apps.map((a) => (
-              <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={() => { openApp(a.id); router.navigate('/apps'); }}
-                style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingHorizontal: S(3), height: 48, borderRadius: R.input, borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.raised })}>
-                <AppTile app={a} size={28} />
-                <Txt style={[T.body, { fontWeight: '500' }]}>{a.name}</Txt>
-              </Pressable>
-            ))}
-          </View>
-        </Section>
-      ) : null}
-      </>} />
+      {!order.length ? <Txt muted style={{ textAlign: 'center', paddingVertical: S(8) }}>Every section is hidden. Choose what Today shows below.</Txt>
+        : twoCol && left.length && right.length ? <Columns left={<>{show(left)}</>} right={<>{show(right)}</>} /> : <View style={{ gap: S(6) }}>{show(order)}</View>}
+      {customize}
     </Page>
   );
 }

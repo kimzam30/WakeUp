@@ -2,11 +2,11 @@
 // and the sync module (sync.ts) mirrors it to the cloud when the user is signed in.
 import { useRef, useSyncExternalStore } from 'react';
 import Storage from 'expo-sqlite/kv-store';
-import { Schema } from './shared';
+import { Look, Schema } from './shared';
 import type { Planner, Settings, WebApp } from './types';
 
 export type SyncStatus = {
-  signedIn: boolean; email: string; name: string; phase: 'off' | 'signing' | 'syncing' | 'idle' | 'offline' | 'error' | 'expired';
+  signedIn: boolean; email: string; name: string; avatar?: string; phase: 'off' | 'signing' | 'syncing' | 'idle' | 'offline' | 'error' | 'expired';
   error: string | null; lastSync: string | null; pending: number; rejected: number;
 };
 
@@ -18,7 +18,7 @@ export const BUILTIN_APPS: WebApp[] = [
 ];
 
 const defaultSettings = (): Settings => ({
-  theme: 'system', weekStart: 1, nickname: '', reminders: 10, classLabel: 'code', notify: {}, customApps: [], apps: ['ebwise', 'mail', 'teams'], taskReminder: '08:00', haptics: 'subtle',
+  theme: 'system', weekStart: 1, nickname: '', reminders: 10, classLabel: 'code', notify: {}, customApps: [], apps: ['ebwise', 'mail', 'teams'], taskReminder: '08:00', haptics: 'subtle', accent: 'blue', today: Look.todayDefault(),
 });
 
 export type State = {
@@ -95,9 +95,17 @@ export function setPlanner(next: Partial<Planner> | ((p: Planner) => Partial<Pla
   emit();
 }
 
+// values that came from the cloud or another device are checked the same way the desktop checks them
+function clean(patch: Partial<Settings>): Partial<Settings> {
+  const p = { ...patch };
+  if ('accent' in p) p.accent = Look.ACCENT_IDS.includes(p.accent ?? '') ? p.accent : 'blue';
+  if ('today' in p) p.today = Look.cleanToday(p.today);
+  if (Array.isArray(p.customApps)) p.customApps = p.customApps.map((a) => (a.icon && !Look.isIcon(a.icon) ? { ...a, icon: null } : a));
+  return p;
+}
 export function setSettings(patch: Partial<Settings>, { fromCloud = false } = {}) {
   const prev = state.settings;
-  const settings = { ...prev, ...patch };
+  const settings = { ...prev, ...clean(patch) };
   state = { ...state, settings };
   write('settings', settings);
   if (!fromCloud) hooks.settings?.(prev, settings);

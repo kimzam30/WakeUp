@@ -11,7 +11,7 @@
   const LISTS = { class: 'classes', change: 'changes', task: 'tasks' };
   // settings that follow you between devices; window sizes, layouts, folders, sidebar and per-app notification
   // mutes stay on each device
-  const SYNCED_SETTINGS = ['theme', 'weekStart', 'nickname', 'reminders', 'classLabel', 'customApps', 'taskReminder'];
+  const SYNCED_SETTINGS = ['theme', 'weekStart', 'nickname', 'reminders', 'classLabel', 'customApps', 'taskReminder', 'accent', 'today'];
 
   const key = (kind, id) => `${kind}:${id}`;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);

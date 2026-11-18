@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useStore } from '../lib/store';
 import { startSync } from '../lib/sync';
 import { startUpdates } from '../lib/updater';
+import { startIcons } from '../lib/icons';
 import { listenForTaps, registerTopUp, rescheduleSoon } from '../lib/reminders';
 import { useTheme } from '../ui/theme';
 import { useLayout } from '../ui/kit';
@@ -21,7 +22,8 @@ export default function Root() {
   const { wide } = useLayout();
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
-    startSync().catch(() => {});
+    // after sync has restored your sign-in, so a logo found here uploads to your other devices
+    startSync().catch(() => {}).finally(startIcons);
     startUpdates();
     rescheduleSoon();
     registerTopUp();

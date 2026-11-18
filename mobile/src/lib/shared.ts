@@ -60,3 +60,13 @@ export const Focus: {
   tick: (s: FocusState, now: number, o?: Lengths) => { state: FocusState; ended: FocusPhase | null };
   remaining: (s: FocusState, now: number) => number; paused: (s: FocusState) => boolean; label: Record<FocusPhase, string>; clock: (ms: number) => string;
 } = require('../../../src/ui/focus-core.js');
+
+// Accent colours, the Today layout and app-icon helpers, shared with the desktop app
+export type TodayLayout = { order: string[]; hidden: string[] };
+export const Look: {
+  ACCENTS: [string, string, [string, string, string], [string, string, string]][]; ACCENT_IDS: string[];
+  accent: (id: string | undefined, dark: boolean) => { accent: string; accentText: string; accentSoft: string };
+  TODAY: [string, string, string][]; TODAY_IDS: string[]; todayDefault: () => TodayLayout; cleanToday: (v: unknown) => TodayLayout;
+  todaySections: (v: unknown, has?: string[]) => string[]; moveToday: (v: unknown, id: string, dir: 1 | -1) => TodayLayout; showToday: (v: unknown, id: string, on: boolean) => TodayLayout;
+  ICON_MAX: number; isIcon: (s: unknown) => boolean; RASTER: RegExp; iconCandidates: (html: string, pageUrl: string) => string[];
+} = require('../../../src/ui/look-core.js');

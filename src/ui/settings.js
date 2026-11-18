@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, $, h, svg, S16, btnSvg, esc, glyph, APPS, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML, closePopover, closeOverlay */
+/* global LookCore, hub, $, h, svg, S16, btnSvg, esc, glyph, APPS, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML, closePopover, closeOverlay */
 // Settings page (Ctrl+,) and Downloads panel (Ctrl+J). Every change goes to main, which validates,
 // applies and sends the result back through applyPayload().
 
@@ -25,7 +25,7 @@ function syncRow() {
   const actions = y.phase === 'expired'
     ? `<button class="btn small primary" data-act="sync-in">Sign in again</button><button class="btn small" data-act="sync-out">Sign out</button>`
     : `<button class="btn small" data-act="sync-now"${y.phase === 'syncing' ? ' disabled' : ''}>Sync now</button><button class="btn small" data-act="sync-out">Sign out</button>`;
-  return row(`Signed in as ${esc(y.name || y.email)}`, `${y.name ? `${esc(y.email)} · ` : ''}${state}${y.rejected ? `<br><span class="bad-text">${n(y.rejected, 'item')} couldn’t sync and stay${y.rejected === 1 ? 's' : ''} on this computer only.</span>` : ''}`, actions)
+  return row(`${avatarHtml(y)}Signed in as ${esc(y.name || y.email)}`, `${y.name ? `${esc(y.email)} · ` : ''}${state}${y.rejected ? `<br><span class="bad-text">${n(y.rejected, 'item')} couldn’t sync and stay${y.rejected === 1 ? 's' : ''} on this computer only.</span>` : ''}`, actions)
     + row('What syncs', 'Your timetable, semester, tasks, theme, nickname, reminders and your own apps. Window layout, folders, notification choices and app sign-ins stay on each device. Signing out keeps everything on this computer.')
     + (y.weakKeyring ? row('Sign-in storage', '<span class="bad-text">No system keyring found</span>, so your WakeUp sign-in is stored without encryption on this computer. Install and unlock GNOME Keyring or KWallet to protect it.') : '');
 }
@@ -34,7 +34,19 @@ function refreshSyncCard() {
   const card = document.querySelector('#settings [data-sync-card]');
   if (card) card.innerHTML = syncRow(); else if (settingsOpen && setTab === 'general') renderSettings();
 }
-hub.onSync?.((st) => { SYNC = st; if (settingsOpen && setTab === 'general') refreshSyncCard(); });
+// your Google profile picture (main fetches it); the first letter of your name until it arrives
+function avatarHtml(st, cls = '') {
+  if (!st?.signedIn) return '';
+  return st.avatar ? `<img class="avatar ${cls}" src="${esc(st.avatar)}" alt="">` : `<span class="avatar ${cls} letter" aria-hidden="true">${esc((st.name || st.email || '?')[0].toUpperCase())}</span>`;
+}
+// beside Settings at the bottom of the sidebar
+function paintSideAvatar() {
+  const b = $('#setBtn'); if (!b) return;
+  b.querySelector('.avatar')?.remove();
+  b.classList.toggle('has-av', !!SYNC.signedIn);
+  if (SYNC.signedIn) { b.insertAdjacentHTML('beforeend', avatarHtml(SYNC, 'side')); b.title = `Settings · signed in as ${SYNC.name || SYNC.email} (Ctrl+,)`; } else b.title = 'Settings (Ctrl+,)';
+}
+hub.onSync?.((st) => { SYNC = st; paintSideAvatar(); if (settingsOpen && setTab === 'general') refreshSyncCard(); });
 
 // ---- updates (Settings → About): what's installed, what's out, one button to get it
 let UPD = null;
@@ -67,7 +79,7 @@ function refreshUpdateCard() {
 }
 hub.onUpdate?.((st) => { UPD = st; if (settingsOpen && setTab === 'about') refreshUpdateCard(); });
 hub.update?.('status').then((st) => { if (st) UPD = st; });
-hub.sync?.('status').then((st) => { if (st) SYNC = st; });
+hub.sync?.('status').then((st) => { if (st) { SYNC = st; paintSideAvatar(); } });
 const AI_PRESETS = [ // a starting point; any AI that works in a browser can be added with 'Other'
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
   ['Copilot', 'https://copilot.microsoft.com/', '#2b63d9'], ['Perplexity', 'https://www.perplexity.ai/', '#20808d'], ['DeepSeek', 'https://chat.deepseek.com/', '#4d6bfe'],
@@ -196,12 +208,26 @@ function sectionHtml(tab) {
       row('Theme', '', seg('theme', S.theme, [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], 'Theme'))
       + row('Page zoom', 'How big pages inside your apps appear.', sel('zoom', S.zoom, [80, 90, 100, 110, 125, 150].map((z) => [z, `${z}%`]), 'Page zoom'))
       + row('Show app names in the sidebar', '', sw('labels', S.labels && !S.compact, 'Show app names', S.compact))
-      + row('Icons-only sidebar', 'Folds the sidebar to just the app icons, for more room. Small windows do this by themselves.', sw('compact', S.compact, 'Icons-only sidebar')));
+      + row('Icons-only sidebar', 'Folds the sidebar to just the app icons, for more room. Small windows do this by themselves.', sw('compact', S.compact, 'Icons-only sidebar')))
+      + group('Colour', row('Accent colour', 'Buttons, links and highlights. It follows you to your phone and tablet.', accentPicker(S.accent)))
+      + todayGroup(S.today);
   }
   return `<section class="set-group"><h2>Updates</h2><div class="set-card" data-update-card>${updateRow()}</div></section>` + group('WakeUp',
     row(`Version ${esc(META.version || '')}`, 'Problems are written to a log file. Attach it if you report a bug.', '<button class="btn small" data-act="logs">Open log folder</button>')
     + row('Reset layout', 'Close every app and split and go back to Today. Your sign-ins, timetable and tasks stay.', '<button class="btn small" data-act="reset-layout">Reset</button>'))
     + `<section class="set-group"><h2>Keyboard shortcuts</h2><div class="set-card pad">${KEYS_HTML}</div></section>`;
+}
+
+const accentPicker = (val) => `<div class="swatches" role="radiogroup" aria-label="Accent colour">${LookCore.ACCENTS.map(([id, name, light]) => `<button role="radio" class="swatch" aria-checked="${id === (val || 'blue')}" data-k="accent" data-v="${id}" data-c="${light[0]}" title="${name}" aria-label="${name}"></button>`).join('')}</div>`;
+// Today's sections: order and which show. Synced; each device draws them its own way.
+function todayGroup(v) {
+  const t = LookCore.cleanToday(v); const up = svg(S16('M4 10l4-4 4 4'), '0 0 16 16', 'none'); const down = svg(S16('M4 6l4 4 4-4'), '0 0 16 16', 'none');
+  const rows = t.order.map((id, i) => {
+    const [, name, desc] = LookCore.TODAY.find((x) => x[0] === id); const on = !t.hidden.includes(id);
+    return `<div class="set-row today-row${on ? '' : ' off'}" data-id="${id}"><div class="set-text"><div class="set-title">${esc(name)}</div><div class="set-desc">${esc(desc)}</div></div>
+      <div class="set-ctl"><div class="app-move"><button class="hbtn" data-act="today-up" aria-label="Move ${esc(name)} up" title="Move up"${i === 0 ? ' disabled' : ''}>${up}</button><button class="hbtn" data-act="today-down" aria-label="Move ${esc(name)} down" title="Move down"${i === t.order.length - 1 ? ' disabled' : ''}>${down}</button></div>${sw(`today:${id}`, on, `Show ${name}`)}</div></div>`;
+  }).join('');
+  return `<section class="set-group" data-today><h2>Today page</h2><p class="set-lead">Choose what Today shows and in what order. It syncs; the computer, tablet and phone each lay it out to fit.</p><div class="set-card">${rows}</div><div class="actions left today-reset"><button class="btn small" data-act="today-reset">Reset to default</button></div></section>`;
 }
 
 function renderSettings() {
@@ -258,6 +284,7 @@ function onSettingsClick(e) {
     else if (kind === 'show') save({ hidden: on ? SET.hidden.filter((x) => x !== sid) : [...SET.hidden, sid] });
     else if (kind === 'bg') save({ keepAlive: { ...SET.keepAlive, [sid]: on } });
     else if (kind === 'notify') save({ notify: { ...SET.notify, [sid]: on } });
+    else if (kind === 'today') save({ today: LookCore.showToday(SET.today, sid, on) });
     else save({ [k]: on });
     return;
   }
@@ -268,6 +295,8 @@ function onSettingsClick(e) {
   }
   if (act === 'close') toggleSettings(false);
   else if (act === 'up' || act === 'down') moveApp(id, act === 'up' ? -1 : 1);
+  else if (act === 'today-up' || act === 'today-down') save({ today: LookCore.moveToday(SET.today, t.closest('[data-id]').dataset.id, act === 'today-up' ? -1 : 1) });
+  else if (act === 'today-reset') save({ today: LookCore.todayDefault() });
   else if (act === 'add') { appForm = { name: '', url: '', color: '#5e6ad2', own: true, error: '' }; renderSettings(); $('#settings [name="name"]')?.focus(); }
   else if (act === 'add-ai') {
     appForm = { name: t.dataset.name ? nextName(t.dataset.name) : '', url: t.dataset.url, color: t.dataset.color, own: true, ai: true, mic: false, error: '' };

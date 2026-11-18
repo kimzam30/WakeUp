@@ -139,3 +139,14 @@ const classSvg = (k) => svg(S16(CLASS_ICON[k]), '0 0 16 16', 'none');
 const emptyArt = (k) => `<div class="empty-art" aria-hidden="true">${btnSvg(k)}</div>`;
 const classIcon = (c) => (CLASS_ICON[c.icon] ? classSvg(c.icon) : `<span class="letter">${esc(classLabel(c).trim()[0]?.toUpperCase() || '?')}</span>`);
 const taskBadge = () => { const t = Planner.today(); return PL.tasks.filter((x) => ['overdue', 'today'].includes(Planner.bucket(x, t))).length; };
+
+// ---------- accent colour: a preset from look-core.js, for light and dark ----------
+let ACCENT_ID = 'blue';
+const darkScheme = matchMedia('(prefers-color-scheme: dark)');
+function applyAccent(id = ACCENT_ID) {
+  ACCENT_ID = id || 'blue';
+  if (typeof LookCore === 'undefined') return;
+  const a = LookCore.accent(ACCENT_ID, darkScheme.matches); const st = document.documentElement.style;
+  st.setProperty('--accent', a.accent); st.setProperty('--accent-text', a.accentText); st.setProperty('--accent-soft', a.accentSoft);
+}
+darkScheme.addEventListener('change', () => applyAccent());

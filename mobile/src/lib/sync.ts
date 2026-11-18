@@ -48,6 +48,7 @@ let active = AppState.currentState === 'active';
 
 const report = (phase: SyncStatus['phase'], error: string | null = null) => setSyncStatus({
   signedIn: !!user, email: user?.email ?? '', name: (user?.user_metadata?.full_name || user?.user_metadata?.name || '') as string,
+  avatar: (/^https:\/\//.test(String(user?.user_metadata?.avatar_url ?? user?.user_metadata?.picture ?? '')) ? String(user?.user_metadata?.avatar_url ?? user?.user_metadata?.picture) : ''),
   phase, error, lastSync, pending: outbox.length + (dirtyKeys.length ? 1 : 0), rejected,
 });
 type Kind = 'offline' | 'auth' | 'bad' | 'other';

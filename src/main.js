@@ -110,6 +110,7 @@ function signInAgain(id, wc) {
   wc.executeJavaScript(`document.querySelector(${JSON.stringify(sso.click)})?.click()`).catch(() => {});
 }
 const Planner = require('./ui/planner-core.js');
+const Look = require('./ui/look-core.js');
 let SERVICES = []; let byId = {};
 let FILES = []; // open documents and screenshots: [{id, name, src, partition, from, ts}]
 const valid = (id) => typeof id === 'string' && Object.hasOwn(byId, id) && !byId[id].hidden;
@@ -165,7 +166,7 @@ const settingsDefaults = () => ({
   theme: 'system', zoom: 100, compact: false, labels: true, sideWidth: 0,
   nickname: '', reminders: 10, weekStart: 1, classLabel: 'code', taskReminder: '08:00',
   screenshotDir: '', screenshotCopy: true,
-  customApps: [], autoUpdate: true,
+  customApps: [], autoUpdate: true, accent: 'blue', today: Look.todayDefault(),
 });
 const oneOf = (v, list, d) => (list.includes(v) ? v : d);
 const bool = (v, d) => (typeof v === 'boolean' ? v : d);
@@ -182,7 +183,7 @@ function cleanCustomApps(list) {
     let id = typeof c.id === 'string' && /^c-[a-z0-9-]{1,40}$/.test(c.id) ? c.id : '';
     if (!id || seen.has(id)) id = `c-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'app'}-${Math.random().toString(36).slice(2, 6)}`;
     seen.add(id);
-    const icon = typeof c.icon === 'string' && c.icon.length < 90000 && /^data:image\/(png|x-icon|vnd\.microsoft\.icon|jpeg|webp|gif|svg\+xml);base64,[a-z0-9+/=]+$/i.test(c.icon) ? c.icon : null;
+    const icon = Look.isIcon(c.icon) ? c.icon : null;
     out.push({ id, name, url: u.href, color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#5e6ad2', own: c.own !== false, icon, ai: c.ai === true, mic: c.mic === true });
   }
   return out;
@@ -225,6 +226,8 @@ function cleanSettings(raw, legacy = {}) {
     screenshotCopy: bool(r.screenshotCopy, d.screenshotCopy),
     customApps,
     autoUpdate: bool(r.autoUpdate, d.autoUpdate),
+    accent: oneOf(r.accent, Look.ACCENT_IDS, d.accent),
+    today: Look.cleanToday(r.today),
   };
 }
 
@@ -861,19 +864,43 @@ function retry(id) {
   p.view.webContents.loadURL(p.url || byId[id].url).catch(() => { /* reported via did-fail-load */ });
 }
 
-const iconTried = new Set();
-async function fetchIcon(id, url, ses) { // custom apps: keep the site's favicon for the sidebar
-  if (iconTried.has(id) || !isHttp(url)) return;
-  iconTried.add(id);
-  try {
-    const res = await ses.fetch(url);
-    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (!res.ok || !type.startsWith('image/') || buf.length > 60000) return;
-    const icon = `data:${type};base64,${buf.toString('base64')}`;
-    applySettings({ customApps: state.settings.customApps.map((c) => (c.id === id ? { ...c, icon } : c)) });
-  } catch (e) { log('could not fetch icon for', id, e.message); }
+// ---- your own apps' logos: the site's own icon (apple-touch-icon first), fetched once per address. Nothing goes
+// to a third-party icon service. The icon syncs inside settings, so the phone and tablet get it too.
+const iconBusy = new Set(); const favTried = new Set();
+async function iconFrom(url) { // a raster icon at `url` as a data: URL, or null
+  const res = await net.fetch(url, { headers: { accept: 'image/png,image/*;q=0.8' }, signal: AbortSignal.timeout(8000) });
+  const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!res.ok || !Look.RASTER.test(type)) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  const icon = `data:${type};base64,${buf.toString('base64')}`;
+  return buf.length > 40 && Look.isIcon(icon) ? icon : null;
 }
+async function findIcon(c, extra = []) {
+  const key = `${c.id} ${c.url}`;
+  if (iconBusy.has(key) || (state.iconChecked?.[c.id] === c.url && isRaster(c.icon))) return;
+  iconBusy.add(key);
+  try {
+    let urls = [];
+    try {
+      const res = await net.fetch(c.url, { signal: AbortSignal.timeout(10000) });
+      if (res.ok && /html/i.test(res.headers.get('content-type') || '')) urls = Look.iconCandidates(await res.text(), res.url || c.url);
+    } catch (e) { log('could not read', new URL(c.url).host, 'for its icon:', e.message); }
+    if (!urls.length) urls = Look.iconCandidates('', c.url);
+    for (const u of [...urls, ...extra.filter((x) => isHttp(x) && !/\.svg(\?|$)/i.test(x))]) {
+      const icon = await iconFrom(u).catch(() => null);
+      if (!icon) continue;
+      const now = state.settings.customApps.find((x) => x.id === c.id);
+      if (now && now.url === c.url && now.icon !== icon) applySettings({ customApps: state.settings.customApps.map((x) => (x.id === c.id ? { ...x, icon } : x)) });
+      break;
+    }
+    // tried once for this address, found or not; a new address tries again
+    state.iconChecked = { ...(isObj(state.iconChecked) ? state.iconChecked : {}), [c.id]: c.url }; saveState();
+  } finally { iconBusy.delete(key); }
+}
+// apps without a logo, or with one from before 2.8 (SVG, or a tiny favicon), look for a better one
+const isRaster = (icon) => Look.isIcon(icon) && !/^data:image\/svg/.test(icon);
+const needsIcon = (c) => !isRaster(c.icon) || c.icon.length < 1500;
+const findIcons = () => { for (const c of state.settings.customApps) if (needsIcon(c)) findIcon(c); };
 
 const adopted = {}; // file id -> a link window's view that is moving into that pane
 function createView(id) {
@@ -897,7 +924,7 @@ function createView(id) {
     const n = m ? Number(m[1] || m[2] || m[3]) : 0;
     if (n !== p.unread) { p.unread = n; updateBadge(); send('unread', { id, n }); }
   });
-  if (svc.custom && !svc.icon) wc.on('page-favicon-updated', (_e, favs) => fetchIcon(id, favs[0], wc.session));
+  if (svc.custom && !svc.icon) wc.on('page-favicon-updated', (_e, favs) => { const c = state.settings.customApps.find((x) => x.id === id); if (c && !c.icon && !favTried.has(id)) { favTried.add(id); if (state.iconChecked) delete state.iconChecked[id]; findIcon(c, favs); } });
   wc.on('did-start-loading', () => { if (p.status !== 'error') setStatus(id, 'loading'); });
   wc.on('did-stop-loading', () => { if (p.status === 'loading') setStatus(id, 'ready'); });
   wc.on('did-navigate', (_e, url) => { p.url = url; });
@@ -1198,6 +1225,7 @@ function applySettings(patch, { fromCloud = false } = {}) {
   writeDesktopEntry();
   buildTray(); updateBadge(); saveState(); scheduleReminder();
   if (!fromCloud) sync?.settingsChanged(prev, next);
+  findIcons();
   if (next.autoUpdate !== prev.autoUpdate) updater?.schedule();
   return sendSettings();
 }
@@ -1350,7 +1378,26 @@ function setPlanner(patch, { fromCloud = false } = {}) {
 ipcMain.handle('planner-set', (_e, patch) => setPlanner(patch));
 
 // ---- cloud sync (Settings → General → Sync): Google sign-in, then timetable, tasks and settings on every device
-const sendSync = (st) => { for (const w of shellWindows()) w.webContents.send('sync', st); };
+// Your Google profile picture: fetched here and handed to the pages as a data: URL (their CSP allows no remote
+// images), kept in state.json so it shows offline too. Signing out drops it.
+let avatarBusy = '';
+function withAvatar(st) {
+  if (!st) return st;
+  const url = st.signedIn && /^https:\/\//.test(st.avatar || '') ? st.avatar : '';
+  if (!url) { if (state.avatar) { delete state.avatar; saveState(); } return { ...st, avatar: '' }; }
+  if (state.avatar?.url !== url && avatarBusy !== url) {
+    avatarBusy = url;
+    net.fetch(url, { signal: AbortSignal.timeout(10000) }).then(async (res) => {
+      const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!res.ok || !Look.RASTER.test(type) || buf.length > 300000) throw new Error(`HTTP ${res.status} ${type}`);
+      state.avatar = { url, data: `data:${type};base64,${buf.toString('base64')}` }; saveState();
+      if (sync) sendSync(sync.status());
+    }).catch((e) => log('could not fetch the profile picture:', e.message)).finally(() => { avatarBusy = ''; });
+  }
+  return { ...st, avatar: state.avatar?.url === url ? state.avatar.data : '' };
+}
+const sendSync = (st) => { const v = withAvatar(st); for (const w of shellWindows()) w.webContents.send('sync', v); };
 function startSync() {
   sync = createSync({
     app, shell, safeStorage, net, powerMonitor, state, saveState, log, cleanPlanner,
@@ -1368,6 +1415,7 @@ function startSync() {
     onStatus: sendSync,
   });
   sync.start().catch((e) => log('sync start failed', e.message));
+  findIcons();
   // coming back to the window: catch up on anything that changed elsewhere (no polling while it's hidden)
   if (win && !win.isDestroyed()) for (const ev of ['show', 'restore']) win.on(ev, () => sync?.onShow());
 }
@@ -1381,11 +1429,11 @@ ipcMain.handle('update', async (_e, action) => {
 });
 ipcMain.handle('sync', async (_e, action) => {
   if (!sync) return null;
-  if (action === 'sign-in') return sync.signIn();
-  if (action === 'sign-out') return sync.signOut();
-  if (action === 'cancel') return sync.cancelSignIn();
-  if (action === 'now') { await sync.syncNow(); return sync.status(); }
-  return sync.status();
+  if (action === 'sign-in') return withAvatar(await sync.signIn());
+  if (action === 'sign-out') return withAvatar(await sync.signOut());
+  if (action === 'cancel') return withAvatar(sync.cancelSignIn());
+  if (action === 'now') { await sync.syncNow(); return withAvatar(sync.status()); }
+  return withAvatar(sync.status());
 });
 ipcMain.handle('planner-export', async (e) => {
   const w = BrowserWindow.fromWebContents(e.sender) || win;

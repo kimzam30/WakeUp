@@ -22,4 +22,6 @@ export type Settings = {
   notify: Record<string, boolean>; customApps: WebApp[]; apps: string[]; // apps: built-in apps shown on this device
   taskReminder: string; // 'HH:MM' on the due day, '' = off
   haptics?: 'off' | 'subtle' | 'full'; // this device only
+  accent?: string; // a preset id from look-core.js
+  today?: { order: string[]; hidden: string[] }; // Today's sections: order and hidden (synced)
 };

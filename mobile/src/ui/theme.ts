@@ -1,4 +1,4 @@
-import { Planner } from '../lib/shared';
+import { Look, Planner } from '../lib/shared';
 // WakeUp's colours, the same tokens as the desktop app (src/ui/ui.css): neutral surfaces, thin lines,
 // one blue accent. Colour beyond that comes only from app icons, class colours and status chips.
 import { useColorScheme } from 'react-native';
@@ -19,12 +19,16 @@ const dark: typeof light = {
   scrim: 'rgba(0,0,0,0.55)',
 };
 export type Colors = typeof light;
+const cache: Record<string, Colors> = {}; // one object per accent and mode, so screens don't re-render for nothing
 
 export function useTheme() {
   const system = useColorScheme();
   const pref = useStore((s) => s.settings.theme);
+  const accentId = useStore((s) => s.settings.accent);
   const isDark = pref === 'dark' || (pref === 'system' && system === 'dark');
-  return { c: isDark ? dark : light, dark: isDark };
+  const base = isDark ? dark : light;
+  const c = accentId && accentId !== 'blue' ? (cache[`${accentId}-${isDark}`] ??= { ...base, ...Look.accent(accentId, isDark) }) : base;
+  return { c, dark: isDark };
 }
 
 // Shape lock: actions are pills, cards 14, inputs and rows 10, chips 6. Spacing on a 4 grid.

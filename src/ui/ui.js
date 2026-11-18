@@ -405,6 +405,7 @@ function buildSidebar() {
       tool('layoutsBtn', 'Layouts (Ctrl+Shift+L)', 'Layouts', 'layouts', (e) => { e.stopPropagation(); toggleMenu(undefined, e.detail === 0); }, { 'aria-haspopup': 'true', 'aria-expanded': 'false' }),
       tool('setBtn', 'Settings (Ctrl+,)', 'Settings', 'settings', () => toggleSettings()),
     );
+    paintSideAvatar();
   }
   sideBtns.clear();
   $('#services').replaceChildren(...SV.map((svc) => sideItem(svc)));
@@ -989,6 +990,7 @@ function applyPayload(p) {
   const before = svcSig();
   ALL = p.services; APPS = ALL.filter((s) => s.kind !== 'file'); SV = APPS.filter((s) => !s.hidden); FILES = ALL.filter((s) => s.kind === 'file');
   BY = Object.fromEntries(ALL.map((x) => [x.id, x]));
+  const prevToday = JSON.stringify([SET.today, SET.accent]);
   SET = p.settings; META = { version: p.version, autostart: p.autostart, defaultDownloadDir: p.defaultDownloadDir, defaultShotDir: p.defaultShotDir };
   const ws = WEEK_START; WEEK_START = SET.weekStart;
   const lm = LABEL_MODE; LABEL_MODE = SET.classLabel || 'code';
@@ -996,8 +998,10 @@ function applyPayload(p) {
   for (const [id, el] of paneEls) if (!L.alive.includes(id) || !BY[id]) { el.remove(); paneEls.delete(id); }
   if (before !== svcSig()) buildSidebar(); // panes re-create themselves if their own name/icon changed
   if (ws !== WEEK_START || lm !== LABEL_MODE) plannerUpdated();
+  applyAccent(SET.accent);
   if (settingsOpen) renderSettings();
   render();
+  if (prevToday !== JSON.stringify([SET.today, SET.accent]) && showHome()) renderToday();
 }
 
 document.addEventListener('keydown', (e) => {

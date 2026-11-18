@@ -7,12 +7,12 @@ if (id === 'tasks' || id === 'timetable') {
   document.body.classList.add('pop-local');
   const root = document.createElement('div'); root.className = 'local-root'; document.body.append(root);
   hub.init().then((s) => {
-    PL = s.planner; WEEK_START = s.settings.weekStart; LABEL_MODE = s.settings.classLabel || 'code';
+    PL = s.planner; WEEK_START = s.settings.weekStart; LABEL_MODE = s.settings.classLabel || 'code'; applyAccent(s.settings.accent);
     const view = id === 'tasks' ? TasksView(root) : TimetableView(root);
     plannerListeners.add(() => view.render());
     hub.onPlanner(plannerUpdated);
     hub.onSettings((p) => {
-      const lm = p.settings.classLabel || 'code';
+      const lm = p.settings.classLabel || 'code'; applyAccent(p.settings.accent);
       if (p.settings.weekStart !== WEEK_START || lm !== LABEL_MODE) { WEEK_START = p.settings.weekStart; LABEL_MODE = lm; view.render(); }
     });
     setInterval(() => view.tick?.(), 30e3);
