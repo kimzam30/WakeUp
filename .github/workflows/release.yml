@@ -74,6 +74,14 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx expo prebuild -p android --no-install
+      # The NDK is a large download that sometimes arrives corrupted; fetch it here, retrying from scratch, so the
+      # build doesn't trip over a broken copy (which Gradle would otherwise reuse on every retry)
+      - name: Android NDK
+        run: |
+          NDK=$(sed -n 's/^ndkVersion = "\(.*\)"/\1/p' node_modules/react-native/gradle/libs.versions.toml)
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          for i in 1 2 3; do yes | "$SDKM" --install "ndk;$NDK" >/dev/null && [ -f "$ANDROID_HOME/ndk/$NDK/source.properties" ] && exit 0; echo "NDK download $i failed; retrying"; rm -rf "$ANDROID_HOME/ndk/$NDK"; sleep 15; done
+          exit 1
       - name: Release signing key
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
