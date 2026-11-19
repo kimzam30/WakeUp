@@ -1,5 +1,5 @@
 'use strict';
-/* global hub */
+/* global hub, LUCIDE */
 /* eslint-disable no-unused-vars */
 // Helpers shared by the main window (index.html) and pop-out windows (pop.html).
 
@@ -69,7 +69,10 @@ const BTN = {
 const MARK = '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path stroke-width="74" d="M282 372C298 540 336 690 398 690C452 690 470 572 492 520C506 486 536 470 552 492C568 516 546 546 520 534C500 524 506 486 532 488C566 560 572 690 628 690C690 690 716 540 732 372"/><path stroke-width="56" d="M722 236L742 184M790 278L834 246M818 350L870 340"/></g>';
 const MARK_VB = '230 140 690 600';
 const svg = (body, vb = '0 0 24 24', fill = 'currentColor') => `<svg viewBox="${vb}" fill="${fill}" aria-hidden="true">${body}</svg>`;
-const btnSvg = (k) => svg(BTN[k], '0 0 16 16', 'none');
+// buttons use Lucide (lucide.js) when it has the icon; the hand-drawn 16px set stays as a fallback
+const btnSvg = (k) => (typeof LUCIDE !== 'undefined' && LUCIDE[k]
+  ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[k]}</svg>`
+  : svg(BTN[k], '0 0 16 16', 'none'));
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 // App glyph: built-in icon, a document/image icon, a custom app's favicon, or its first letter.
 function glyph(svc) {

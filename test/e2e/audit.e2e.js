@@ -54,8 +54,8 @@ test('audit: every screen, three window sizes, light and dark: no sideways spill
   } finally { await w.close(); }
 });
 
-// todo: Today's quick-add box shows no focus ring (audit 2026-11-19, fixed in the redesign)
-test('audit: keyboard only: Tab moves through the sidebar and every stop shows where focus is', { todo: 'Today quick-add has no focus ring' }, async () => {
+// Today's quick-add box had no focus ring (audit 2026-11-19); the v3 redesign gives it one
+test('audit: keyboard only: Tab moves through the sidebar and every stop shows where focus is', async () => {
   const w = await launch();
   try {
     const stops = [];

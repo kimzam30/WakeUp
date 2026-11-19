@@ -10,6 +10,10 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 
 - **Inter** by The Inter Project Authors, under the SIL Open Font License 1.1 (`src/ui/fonts/OFL.txt`).
 
+## Icons
+
+- **Lucide** icons (https://lucide.dev), under the ISC License. Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT); all other copyright (c) for Lucide are held by Lucide Contributors 2022. The desktop app carries the icons it uses in `src/ui/lucide.js`.
+
 ## Desktop app (9 packages)
 
 - **@supabase/auth-js** 2.119.0: MIT. Copyright (c) 2020 Supabase
@@ -22,7 +26,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **iceberg-js** 0.8.1: MIT. Copyright (c) 2025 Supabase
 - **tslib** 2.8.1: 0BSD. Copyright (c) Microsoft Corporation.
 
-## Android app (550 packages)
+## Android app (555 packages)
 
 - **@babel/code-frame** 7.29.7: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
 - **@babel/compat-data** 7.29.7: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
@@ -96,6 +100,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **@babel/template** 7.29.7: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
 - **@babel/traverse** 7.29.14: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
 - **@babel/types** 7.29.14: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
+- **@expo-google-fonts/inter** 0.4.2: MIT AND OFL-1.1. Copyright (c) 2020 Expo
 - **@expo-google-fonts/material-symbols** 0.4.54: MIT AND Apache-2.0. Copyright (c) 2020 Expo
 - **@expo/cli** 58.1.20: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **@expo/code-signing-certificates** 0.0.7: MIT. Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)
@@ -303,6 +308,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **expo-application** 58.1.2: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-asset** 58.0.21: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-background-task** 58.0.13: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+- **expo-blur** 58.0.6: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-build-properties** 58.0.12: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-constants** 58.0.16: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-crypto** 58.0.8: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
@@ -326,6 +332,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **expo-modules-macros** 0.33.0: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-notifications** 58.1.9: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-router** 58.0.31: MIT
+- **expo-secure-store** 58.0.3: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-server** 58.1.0: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-splash-screen** 58.0.14: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 - **expo-sqlite** 58.0.17: MIT. Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
@@ -402,6 +409,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **loose-envify** 1.4.0: MIT. Copyright (c) 2015 Andres Suarez <zertosh@gmail.com>
 - **lru-cache** 10.4.3: ISC. Copyright (c) 2010-2023 Isaac Z. Schlueter and Contributors; copyright notice and this permission notice appear in all copies.
 - **lru-cache** 5.1.1: ISC. Copyright (c) Isaac Z. Schlueter and Contributors; copyright notice and this permission notice appear in all copies.
+- **lucide-react-native** 1.75.0: ISC. Copyright (c) 2026 Lucide Icons and Contributors; copyright notice and this permission notice appear in all copies.; Copyright (c) 2013-present Cole Bemis
 - **makeerror** 1.0.12: BSD-3-Clause. Copyright (c) 2014, Naitik Shah. All rights reserved.
 - **mdn-data** 2.0.14: CC0-1.0. Copyright and Related Rights in the Work and the meaning and intended legal; Copyright and Related Rights in the Work or (ii) assert any associated claims
 - **memoize-one** 5.2.1: MIT. Copyright (c) 2019 Alexander Reardon
@@ -473,6 +481,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **react-is** 19.3.1: MIT. Copyright (c) Meta Platforms, Inc. and affiliates.
 - **react-is** 18.3.1: MIT. Copyright (c) Facebook, Inc. and its affiliates.
 - **react-native** 0.88.1: MIT. Copyright (c) Meta Platforms, Inc. and affiliates.
+- **react-native-android-widget** 0.26.0: MIT. Copyright (c) 2022 Stefan Aleksovski
 - **react-native-drawer-layout** 4.2.13: MIT. Copyright (c) 2017 React Native Community
 - **react-native-gesture-handler** 3.3.0: MIT. Copyright (c) 2016 Software Mansion <swmansion.com>
 - **react-native-is-edge-to-edge** 1.3.1: MIT. Copyright (c) 2024 Mathieu Acthernoene
@@ -1821,6 +1830,30 @@ SOFTWARE.
 ### MIT AND Apache-2.0
 
 (as included with @expo-google-fonts/material-symbols; the copyright holders are listed above)
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### MIT AND OFL-1.1
+
+(as included with @expo-google-fonts/inter; the copyright holders are listed above)
 
 ```text
 Permission is hereby granted, free of charge, to any person obtaining a copy

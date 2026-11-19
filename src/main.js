@@ -50,8 +50,8 @@ process.on('uncaughtException', (e) => log('uncaught', e));
 process.on('unhandledRejection', (e) => log('unhandled rejection', e));
 
 const ICON = path.join(__dirname, '..', 'build', 'icons', '512x512.png');
-const RADIUS = 8; // pane corner radius; matches .pane in ui.css
-const BG = () => (nativeTheme.shouldUseDarkColors ? '#1f1f1f' : '#f7f7f5');
+const RADIUS = 12; // pane corner radius; matches .pane in ui.css
+const BG = () => (nativeTheme.shouldUseDarkColors ? '#0c0d0f' : '#f6f7f9');
 const UI = (f) => path.join(__dirname, 'ui', f);
 
 // Chrome UA without "Electron/x" and app tokens, so Teams/Outlook treat us as Chrome.

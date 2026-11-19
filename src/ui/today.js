@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, PL, WEEK_START, Planner, savePlanner, esc, $, $$, paint, svg, glyph, btnSvg, newId, fmtDate, fmtTime, classLabel, classSub, classIcon, KIND, DAYS_LONG, MONTHS, store,
+/* global hub, showNotice, PL, WEEK_START, Planner, savePlanner, esc, $, $$, paint, svg, glyph, btnSvg, newId, fmtDate, fmtTime, classLabel, classSub, classIcon, KIND, DAYS_LONG, MONTHS, store,
    SV, BY, L, SET, DL, SHOTS, unread, leaves, openPane, toggleSettings, toggleDownloads, splitTitle, LookCore, setTab:writable */
 /* eslint-disable no-unused-vars */
 // Today: the start screen. Reads like a page: greeting, next class, today's classes beside tasks due, apps, recent files.
@@ -32,14 +32,29 @@ function renderToday() {
     next = `${head('Next class')}<div class="next empty-next"><span class="cls-ico plain">${btnSvg('cal')}</span><div><h3>No classes coming up</h3><p class="muted">Nothing on your timetable for the next few days.</p></div><button class="btn" data-act="app" data-id="timetable">Open timetable</button></div>`;
   } else {
     const c = nxt.cls; const isNow = nxt === cur;
-    const when = isNow ? `Now, until ${fmtTime(nxt.end)}` : nxt.date === today ? untilText(nxt.startsAt - now) : fmtDate(nxt.date, true);
+    const when = isNow ? `Now · until ${fmtTime(nxt.end)}` : nxt.date === today ? `Next · ${untilText(nxt.startsAt - now)}` : `Next · ${fmtDate(nxt.date, true)}`;
     const ctasks = PL.tasks.filter((t) => t.classId === c.id && !t.done).length;
     const chip = { 'moved-in': ['Moved here', 'warn'], replacement: ['Replacement', 'good'], online: ['Online today', 'info'] }[nxt.status];
-    next = `${head(isNow ? 'Happening now' : 'Next class', `<span class="muted small">${esc(when)}</span>`)}
-      <div class="next" data-c="${esc(c.color)}"><span class="cls-ico">${classIcon(c)}</span>
-      <div class="next-main"><h3>${esc(classLabel(c))}${classSub(c) ? ` <span>${esc(classSub(c))}</span>` : ''}${chip ? ` <span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</h3>
-      <div class="facts-row"><span>${btnSvg('clock')}${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${btnSvg('users')}${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span>${ctasks ? `<span class="next-tasks">${btnSvg('check')}${ctasks} task${ctasks === 1 ? '' : 's'} for this class</span>` : ''}</div>${nxt.notes?.length ? `<div class="next-notes">${esc(Planner.notesLine(nxt.notes))}</div>` : ''}</div>
-      ${nxt.link ? `<button class="btn primary" data-act="join" data-link="${esc(nxt.link)}">${btnSvg('video')}Join meeting</button>` : ''}</div>`;
+    const then = up.find((o) => o !== nxt && o.startsAt > nxt.startsAt);
+    const pct = isNow ? Math.round(Math.min(1, Math.max(0, (now.getTime() - nxt.startsAt) / Math.max(1, Planner.at(nxt.date, nxt.end) - nxt.startsAt))) * 100) : 0;
+    // D: Now in big type, no box. A bar in the class colour beside the code; a thin progress bar while it's on.
+    next = `<div class="now" data-c="${esc(c.color)}"><div class="cap">${esc(when)}</div>
+      <div class="now-title"><span class="bar"></span><div><h2>${esc(classLabel(c))}</h2>${classSub(c) ? `<div class="sub-name">${esc(classSub(c))}</div>` : ''}</div></div>
+      <div class="facts-row"><span>${fmtTime(nxt.start)} – ${fmtTime(nxt.end)}</span>${KIND[nxt.kind] || nxt.section ? `<span>${esc([KIND[nxt.kind], nxt.section].filter(Boolean).join(' · '))}</span>` : ''}<span>${btnSvg(nxt.mode === 'online' ? 'video' : 'pin')}${esc(nxt.mode === 'online' ? 'Online' : nxt.venue || 'Venue not set')}</span>${chip ? `<span class="chip ${chip[1]}">${chip[0]}</span>` : ''}</div>
+      ${isNow ? `<div class="now-prog"><i data-w="${pct}"></i></div>` : ''}
+      ${nxt.notes?.length ? `<div class="next-notes">${esc(Planner.notesLine(nxt.notes))}</div>` : ''}
+      <div class="now-acts">${nxt.link ? `<button class="btn primary" data-act="join" data-link="${esc(nxt.link)}">${btnSvg('video')}Join</button>` : ''}${ctasks ? `<button class="btn" data-act="app" data-id="tasks">${btnSvg('check')}${ctasks} task${ctasks === 1 ? '' : 's'}</button>` : ''}</div>
+      ${then ? `<div class="muted then">Then ${esc(classLabel(then.cls))} at ${fmtTime(then.start)}${then.date === nxt.date ? '' : `, ${then.date === Planner.addDays(today, 1) ? 'tomorrow' : esc(fmtDate(then.date))}`}</div>` : ''}</div>`;
+  }
+
+  // exams in the next 60 days: outlined cards with the days left (amber from 3 days)
+  const exams = PL.tasks.filter((t) => t.exam && !t.done && t.due && t.due >= today && t.due <= Planner.addDays(today, 60))
+    .sort((a, b) => (a.due + (a.at || '')).localeCompare(b.due + (b.at || ''))).slice(0, 6);
+  if (exams.length) {
+    next += `<div class="exams">${exams.map((t) => {
+      const days = Math.round((Planner.parse(t.due) - Planner.parse(today)) / 864e5); const k = PL.classes.find((x) => x.id === t.classId);
+      return `<button class="exam-card${days <= 3 ? ' soon' : ''}" data-act="app" data-id="tasks"><span class="ec-n">${days === 0 ? 'Today' : days}${days ? `<small>${days === 1 ? 'day' : 'days'}</small>` : ''}</span><b>${esc(t.text)}</b><small>${esc([fmtDate(t.due), t.at ? fmtTime(t.at) : '', t.venue].filter(Boolean).join(' · '))}</small>${k ? `<span class="cls-chip" data-c="${esc(k.color)}"><i></i>${esc(classLabel(k))}</span>` : ''}</button>`;
+    }).join('')}</div>`;
   }
 
   // today's classes
@@ -54,8 +69,8 @@ function renderToday() {
     }).join('')}</ul>` : `<p class="muted rows-empty">${Planner.inBreak(today, PL.semester) ? 'It’s a break. No classes today.' : 'No classes today.'}</p>`}</div>` : '';
 
   // tasks
-  const tasks = PL.tasks.filter((t) => ['overdue', 'today'].includes(Planner.bucket(t, today)));
-  const soon = PL.tasks.filter((t) => Planner.bucket(t, today) === 'upcoming').sort((a, b) => a.due.localeCompare(b.due)).slice(0, Math.max(0, 4 - tasks.length));
+  const tasks = PL.tasks.filter((t) => !t.exam && ['overdue', 'today'].includes(Planner.bucket(t, today)));
+  const soon = PL.tasks.filter((t) => !t.exam && Planner.bucket(t, today) === 'upcoming').sort((a, b) => a.due.localeCompare(b.due)).slice(0, Math.max(0, 4 - tasks.length));
   const taskLi = (t) => { const c = PL.classes.find((k) => k.id === t.classId);
     return `<li class="task mini" data-id="${esc(t.id)}"><button class="check" data-act="task" aria-pressed="false" aria-label="Mark done">${btnSvg('check')}</button><span class="t-text">${esc(t.text)}</span>${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classLabel(c))}</span>` : ''}${t.due && t.due < today ? '<span class="chip bad">Late</span>' : t.due && t.due > today ? `<span class="chip">${esc(fmtDate(t.due))}</span>` : ''}</li>`; };
   const tasksCol = `<div>${head(tasks.length || !soon.length ? 'Due today' : 'Coming up', '<button class="link" data-act="app" data-id="tasks">All tasks</button>')}
@@ -81,6 +96,7 @@ function renderToday() {
     <div class="today-foot"><button class="link" data-act="customize">${btnSvg('settings')}Customize Today</button></div>
   </div>`;
   paint(el);
+  for (const b of el.querySelectorAll('[data-w]')) b.style.width = `${b.dataset.w}%`; // CSP: no inline styles in markup
   if (keep !== null) { const i = $('[name="task"]', el); i.value = keep; i.focus(); }
 }
 
@@ -112,7 +128,11 @@ function onTodayClick(e) {
   else if (act === 'task') {
     const tid = b.closest('[data-id]').dataset.id;
     b.closest('.task').classList.add('just-done');
-    setTimeout(() => savePlanner({ tasks: PL.tasks.map((t) => (t.id === tid ? { ...t, done: true, doneAt: Date.now() } : t)) }), 250);
+    setTimeout(() => {
+      const t = PL.tasks.find((x) => x.id === tid); if (!t) return;
+      savePlanner({ tasks: PL.tasks.map((x) => (x.id === tid ? { ...x, done: true, doneAt: Date.now() } : x)) });
+      showNotice({ id: `done-${tid}`, kind: 'success', title: `Done: ${t.text}`, actions: [{ label: 'Undo', run: () => savePlanner({ tasks: PL.tasks.map((x) => (x.id === tid ? { ...x, done: false, doneAt: null } : x)) }) }] });
+    }, 250);
   }
 }
 function onTodaySubmit(e) {
