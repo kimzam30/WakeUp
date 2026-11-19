@@ -8,7 +8,7 @@ export type Change = {
   kind?: Kind; section?: string; // replacement
   tag?: NoteTag; ref?: string | null; // note: what it is, and which class meeting (a session id, or a replacement or move id)
 };
-export type Task = { id: string; text: string; done: boolean; due: string | null; classId: string | null; created: number; doneAt: number | null };
+export type Task = { id: string; text: string; done: boolean; due: string | null; classId: string | null; created: number; doneAt: number | null; exam?: boolean; at?: string | null; venue?: string };
 export type Semester = { name: string; start: string | null; end: string | null; breaks: { start: string; end: string; label: string }[] };
 export type Planner = { semester: Semester; classes: ClassItem[]; changes: Change[]; tasks: Task[] };
 export type Occurrence = {

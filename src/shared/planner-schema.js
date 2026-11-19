@@ -64,6 +64,9 @@
     const tasks = (Array.isArray(r.tasks) ? r.tasks : []).slice(0, 1000).filter(isObj).map((t) => ({
       id: ident(t.id, 't'), text: text(t.text, 300), done: bool(t.done, false), due: ymd(t.due),
       classId: classIds.has(t.classId) ? t.classId : null, created: num(t.created, 0, 1e14, Date.now()), doneAt: t.done ? num(t.doneAt, 0, 1e14, Date.now()) : null,
+      // an exam or test (v3): a task with a time and a place. The fields exist only on exams, so other tasks keep
+      // their shape (and don't re-sync); older versions show an exam as a task due that day.
+      ...(t.exam === true ? { exam: true, at: hm(t.at), venue: text(t.venue, 80) } : null),
     })).filter((t) => t.text);
     return { semester, classes, changes, tasks };
   }

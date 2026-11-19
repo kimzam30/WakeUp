@@ -8,7 +8,7 @@ import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { useFocusEffect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { haptic } from '../../lib/haptics';
-import { Button, Empty, IconButton, Sheet, Txt, useLayout } from '../../ui/kit';
+import { Button, Empty, IconButton, Sheet, Txt, useBarSpace, useLayout } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
 import { AppTile as Glyph } from '../../ui/AppTile';
 import { R, S, useTheme } from '../../ui/theme';
@@ -58,6 +58,7 @@ function googleBlocked(app: WebApp) {
 export default function Apps() {
   const { c } = useTheme();
   const { size, wide } = useLayout();
+  const bar = useBarSpace();
   const insets = useSafeAreaInsets();
   const settings = useStore((s) => s.settings);
   const openIds = useStore((s) => s.openApps);
@@ -127,7 +128,7 @@ export default function Apps() {
   );
 
   if (!apps.length) {
-    return <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: c.bg }}><Empty icon="apps" title="No apps yet" body="Turn on Ebwise, Outlook or Teams, or add any website, in Settings." action={<Button label="Open Settings" onPress={() => router.navigate('/settings')} />} /></View>;
+    return <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: bar, backgroundColor: c.bg }}><Empty icon="apps" title="No apps yet" body="Turn on Ebwise, Outlook or Teams, or add any website, in Settings." action={<Button label="Open Settings" onPress={() => router.push('/settings/apps')} />} /></View>;
   }
 
   const ratio = split?.ratio ?? 0.5;
@@ -145,7 +146,7 @@ export default function Apps() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.side, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top, paddingBottom: bar }}>
       <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
         {/* tablets list the apps in the sidebar, so the bar shows what's on screen instead, like a desktop pane */}
         <View style={{ flex: 1 }}>{wide ? (app ? (
@@ -184,12 +185,12 @@ export default function Apps() {
       <View style={{ flex: 1, backgroundColor: c.line }} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         {!shown.length ? (
           <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ padding: S(5), gap: S(4) }}>
-            <Txt kind="title">Open an app</Txt>
+            <Txt kind="display">Apps</Txt>
             <Txt muted>{`Each app keeps its own place while you switch. Sign in to Microsoft once and Outlook, Calendar, Teams and Ebwise share it.${canSplit ? ' To see two at once, open one and tap Split.' : ''}`}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
               {apps.map((a) => (
                 <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={() => openApp(a.id)}
-                  style={({ pressed }) => ({ width: wide ? 148 : '47%', padding: S(4), gap: S(3), borderRadius: R.card, borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.raised })}>
+                  style={({ pressed }) => ({ width: wide ? 148 : '47%', flexGrow: wide ? 0 : 1, padding: S(4), gap: S(3), borderRadius: R.card, borderCurve: 'continuous', borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.bg, transform: [{ scale: pressed ? 0.97 : 1 }] })}>
                   <Glyph app={a} size={40} />
                   <Txt kind="headline">{a.name}</Txt>
                 </Pressable>
@@ -216,7 +217,7 @@ export default function Apps() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
           {apps.filter((a) => a.id !== focused).map((a) => (
             <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Split with ${a.name}`} onPress={() => { setPicker(false); openSplit(a.id); }}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(3), minHeight: 56, paddingHorizontal: S(4), borderRadius: R.input, borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.raised, flexBasis: wide ? '30%' : '46%', flexGrow: 1 })}>
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(3), minHeight: 56, paddingHorizontal: S(4), borderRadius: R.card, borderCurve: 'continuous', borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.hover : c.bg, flexBasis: wide ? '30%' : '46%', flexGrow: 1 })}>
               <Glyph app={a} size={32} />
               <Txt kind="headline">{a.name}</Txt>
             </Pressable>

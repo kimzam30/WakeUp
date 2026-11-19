@@ -1,0 +1,25 @@
+# a clean, signed-out WakeUp with one weekly class (CSP1123) every weekday 9-11, semester = this week
+appId: my.kimzam.wakeup
+---
+- clearState
+- launchApp
+- tapOn: "Get started"
+- tapOn: "Use without an account"
+- tapOn: "Skip for now"
+- tapOn: "Add a class"
+- tapOn: "e.g. CSP1123"
+- inputText: "CSP1123"
+- tapOn: "e.g. Mini IT Project"
+- inputText: "Mini IT Project"
+- hideKeyboard
+- tapOn: "Tue"
+- tapOn: "Wed"
+- tapOn: "Thu"
+- tapOn: "Fri"
+- tapOn: "Sat"
+- tapOn: "Sun"
+- tapOn: "Save"
+- tapOn: "Continue"
+- tapOn: "Continue"
+- tapOn: "Turn on reminders"
+- tapOn: "Open Today"

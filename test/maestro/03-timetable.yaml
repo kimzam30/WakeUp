@@ -1,0 +1,51 @@
+# Timetable: views, week paging by swipe, a class meeting's details (cancel, online, note, undo), edit, delete, semester + break
+appId: my.kimzam.wakeup
+name: timetable
+---
+- runFlow: sub/fresh.yaml
+- runFlow: { file: sub/tab.yaml, env: { TAB: Timetable } }
+- takeScreenshot: shots/tt-01-list
+- tapOn: "Week"
+- takeScreenshot: shots/tt-02-week
+- swipe: { direction: LEFT, duration: 300 }
+- takeScreenshot: shots/tt-03-week-next
+- swipe: { direction: RIGHT, duration: 300 }
+- tapOn: { text: "This week", optional: true }
+- tapOn: "List"
+# a meeting's details
+- tapOn: { text: "CSP1123.*", index: 0 }
+- takeScreenshot: shots/tt-04-details
+- tapOn: { text: "Cancelled", optional: true }
+- takeScreenshot: shots/tt-05-cancelled
+- tapOn: { text: "Undo this change", optional: true }
+- tapOn: { text: "Online", optional: true }
+- takeScreenshot: shots/tt-06-online
+- tapOn: { text: "Undo this change", optional: true }
+- tapOn: { text: "Close details", optional: true }
+# add a second class from the header
+- tapOn: "Add"
+- assertVisible: "New class"
+- tapOn: "e.g. CSP1123"
+- inputText: "MPU3412"
+- hideKeyboard
+- tapOn: "Online"
+- takeScreenshot: shots/tt-07-new-online
+- scrollUntilVisible: { element: "https://teams.microsoft.com/…", direction: DOWN }
+- tapOn: "https://teams.microsoft.com/…"
+- inputText: "https://teams.microsoft.com/l/meetup-join/test"
+- hideKeyboard
+- tapOn: "Add another session"
+- takeScreenshot: shots/tt-08-two-sessions
+- tapOn: "Save"
+- assertVisible: "MPU3412.*"
+# semester sheet: add a break
+- tapOn: "Semester"
+- takeScreenshot: shots/tt-09-semester
+- tapOn: { text: "Add a break", optional: true }
+- takeScreenshot: shots/tt-10-break
+- tapOn: { text: "Close", optional: true }
+- tapOn: { text: "Cancel", optional: true }
+# rotate to landscape and back
+- setOrientation: LANDSCAPE_LEFT
+- takeScreenshot: shots/tt-11-landscape
+- setOrientation: PORTRAIT

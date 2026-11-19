@@ -1,0 +1,19 @@
+# Human-realistic input: Malay, Chinese, emoji, very long, whitespace-only, and the same with big system text
+appId: my.kimzam.wakeup
+name: stress
+---
+- runFlow: sub/fresh.yaml
+- runFlow: { file: sub/tab.yaml, env: { TAB: Tasks } }
+- tapOn: "New task"
+- inputText: "Siapkan laporan makmal minggu ini"
+- tapOn: "Add"
+- tapOn: "New task"
+- inputText: "复习第三章"
+- tapOn: "Add"
+- tapOn: "New task"
+- inputText: "Submit 📚✅ assignment"
+- tapOn: "Add"
+- tapOn: "New task"
+- inputText: "     "
+- tapOn: "Add"
+- takeScreenshot: shots/stress-01-tasks

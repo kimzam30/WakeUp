@@ -1,0 +1,28 @@
+# Apps: open each, tabs (new, switch, close), reload, Android Back inside a web page, close the app
+appId: my.kimzam.wakeup
+name: apps
+---
+- runFlow: sub/fresh.yaml
+- runFlow: { file: sub/tab.yaml, env: { TAB: Apps } }
+- assertVisible: "Each app keeps its own place.*"
+- takeScreenshot: shots/apps-01-picker
+- tapOn: "Open Ebwise"
+- extendedWaitUntil: { visible: "Reload", timeout: 15000 }
+- waitForAnimationToEnd: { timeout: 8000 }
+- takeScreenshot: shots/apps-02-ebwise
+- tapOn: "New Ebwise tab"
+- waitForAnimationToEnd: { timeout: 8000 }
+- takeScreenshot: shots/apps-03-ebwise-tab2
+- tapOn: { text: "Close tab.*", optional: true }
+- tapOn: "Outlook"
+- waitForAnimationToEnd: { timeout: 8000 }
+- takeScreenshot: shots/apps-04-outlook
+- tapOn: "Teams"
+- waitForAnimationToEnd: { timeout: 8000 }
+- takeScreenshot: shots/apps-05-teams
+- tapOn: "Reload"
+# Android Back inside a web page: should go back in the page / to the app list, not close WakeUp
+- tapOn: "Ebwise"
+- back
+- takeScreenshot: shots/apps-06-after-back
+- assertVisible: "Ebwise"

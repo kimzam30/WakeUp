@@ -1,0 +1,13 @@
+# A focus session ending posts a notification: pull the shade and screenshot how it looks (icon, colour, text)
+appId: my.kimzam.wakeup
+name: notification
+---
+- launchApp
+- runFlow: { file: sub/tab.yaml, env: { TAB: Tasks } }
+- tapOn: "Start"
+- tapOn: { text: "Skip.*", optional: true }
+- pressKey: Home
+- swipe: { start: "50%, 0%", end: "50%, 70%", duration: 400 }
+- waitForAnimationToEnd
+- takeScreenshot: shots/notif-01-shade
+- pressKey: Back

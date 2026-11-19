@@ -19,6 +19,8 @@ export const countdown = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60e3));
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60); const r = m % 60;
-  return h < 24 ? `${h} h${r ? ` ${r} min` : ''}` : `${Math.round(h / 24)} days`;
+  if (h < 24) return `${h} h${r ? ` ${r} min` : ''}`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'}`;
 };
 export const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };

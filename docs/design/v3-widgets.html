@@ -1,0 +1,281 @@
+<title>WakeUp Widgets</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: one section per widget. Each shows the widget at its real dp size on the Z Flip and the Tab S9
+   (1 dp = 1 px here, measured from the launchers), a toggle that draws the spacing grid over it, and the numbers. */
+:root {
+  --page: #f6f7f9; --ink: #111318; --muted: #5f6570; --faint: #8b919b; --line: #e6e8eb; --soft: #eef0f3;
+  --accent: #2b63d9; --guide: #e0367a;
+  --wall: #b9c6c1;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #000000; --ink: #eceef1; --muted: #a1a6ae; --faint: #737881; --line: #222428; --soft: #141518; --wall: #1d2624; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #000000; --ink: #eceef1; --muted: #a1a6ae; --faint: #737881; --line: #222428; --soft: #141518; --wall: #1d2624; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--page); color: var(--ink); font: 15px/1.5 var(--font); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 72px }
+.wrap { max-width: 1160px; margin: 0 auto; display: grid; gap: 64px }
+h1 { font-size: 34px; line-height: 1.15; font-weight: 750; letter-spacing: -0.02em; margin: 0; text-wrap: balance }
+h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 }
+h3 { font-size: 15px; font-weight: 600; margin: 0 }
+p { margin: 0 }
+.lede { color: var(--muted); max-width: 66ch; margin-top: 8px }
+.cap { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; background: var(--page); border-bottom: 1px solid var(--line) }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--page) }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--soft) }
+.seg button { font: 600 13px var(--font); color: var(--muted); background: none; border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer }
+.seg button[aria-pressed="true"] { background: var(--page); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12) }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* measurement tables */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 40px }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums }
+th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top }
+th { font-weight: 600; color: var(--muted); font-size: 12px }
+.tbl { overflow-x: auto }
+.rule { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 14px; color: var(--muted) }
+.rule b { color: var(--ink); font-weight: 600 }
+
+section { display: grid; gap: 18px }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px }
+.span { font: 600 13px var(--font); color: var(--muted) }
+.stage { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start }
+.wallp { background: var(--wall); border-radius: 24px; padding: 20px; display: grid; gap: 10px; justify-items: start; flex: 0 1 auto; max-width: 100% ; overflow-x: auto }
+.wallp .lbl { font: 600 12px var(--font); color: #24302d; opacity: .85; font-variant-numeric: tabular-nums }
+:root[data-theme="dark"] .wallp .lbl { color: #c9d3cf }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wallp .lbl { color: #c9d3cf } }
+.spec { flex: 1 1 260px; min-width: 0; display: grid; gap: 8px; font-size: 14px; color: var(--muted); align-content: start }
+.spec b { color: var(--ink); font-weight: 600 }
+
+/* ---------- the widget system ---------- */
+/* Tokens, in dp: radius 24 (One UI semShapeRadius), padding 16 (12 under 160 dp), gap 8, row 36,
+   inner radius 24 − 16 = 8. Type: label 11/14 caps, row 13/18, title 15/20, hero 28/32 (34/38 when ≥ 170 dp tall). */
+.w { --bg: #ffffff; --tx: #111318; --mu: #5f6570; --fa: #8b919b; --ln: #e6e8eb; --sf: #f3f4f6; --wn: #8a5300; --bad: #c4271b; --ac: #2b63d9; --act: #1f4fb8;
+  --pad: 16px; position: relative; background: var(--bg); color: var(--tx); border-radius: 24px; font-family: var(--font); overflow: hidden;
+  display: flex; flex-direction: column; padding: var(--pad); gap: 8px; flex: none }
+.w.small { --pad: 12px }
+.dk .w { --bg: #141518; --tx: #eceef1; --mu: #a1a6ae; --fa: #737881; --ln: #26282d; --sf: #1f2125; --wn: #e9b860; --bad: #f59a92; --act: #7fa6f5 }
+.lab { font-size: 11px; line-height: 14px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none }
+.hero { font-size: 28px; line-height: 32px; font-weight: 750; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tall .hero { font-size: 34px; line-height: 38px }
+.ttl { font-size: 15px; line-height: 20px; font-weight: 650 }
+.rowt { font-size: 13px; line-height: 18px; font-weight: 500 }
+.meta { font-size: 12px; line-height: 16px; color: var(--mu); font-variant-numeric: tabular-nums }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.hs { display: flex; align-items: center; gap: 8px; min-width: 0 }
+.g { flex: 1; min-width: 0 }
+.push { margin-top: auto }
+.pill { height: 36px; border-radius: 999px; background: var(--ac); color: #fff; font: 600 13px var(--font); display: flex; align-items: center; justify-content: center; gap: 6px; flex: none }
+.pill.ghost { background: var(--sf); color: var(--tx) }
+.trow { height: 36px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--ln); min-width: 0 }
+.trow:first-of-type { border-top: 0 }
+.circ { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--fa); flex: none }
+.circ.late { border-color: var(--bad) }
+.add { width: 28px; height: 28px; border-radius: 50%; background: var(--sf); display: grid; place-items: center; flex: none; color: var(--tx) }
+.prog { height: 4px; border-radius: 2px; background: var(--sf); overflow: hidden } .prog i { display: block; height: 100% }
+.ic { width: 14px; height: 14px; flex: none }
+/* timeline */
+.tl { position: relative; flex: 1; min-height: 0; margin-left: 28px }
+.tl .h { position: absolute; left: -28px; right: 0; border-top: 1px solid var(--ln); font-size: 10.5px; line-height: 12px; color: var(--fa); font-variant-numeric: tabular-nums; padding-top: 1px }
+.ev { position: absolute; left: 0; right: 0; border-radius: 8px; padding: 0 8px; display: flex; flex-direction: column; justify-content: center; overflow: hidden }
+.ev b { font-size: 12.5px; line-height: 16px } .ev span { font-size: 11px; line-height: 14px; color: var(--mu) }
+.free { position: absolute; left: 0; right: 0; border: 1px dashed var(--ln); border-radius: 8px; font-size: 11px; color: var(--mu); padding: 0 8px; display: flex; align-items: center; overflow: hidden }
+.now { position: absolute; left: -4px; right: 0; height: 2px; background: var(--bad) }
+.now::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad) }
+/* the spacing overlay */
+.guides .w::after { content: ""; position: absolute; inset: var(--pad); border: 1px dashed var(--guide); border-radius: 8px; pointer-events: none }
+.guides .w { outline: 1px solid var(--guide); outline-offset: 0 }
+.guides .w > * { box-shadow: inset 0 0 0 1px rgba(224,54,122,.35) }
+.dims { display: none; font: 600 11px var(--font); color: var(--guide); font-variant-numeric: tabular-nums }
+.guides .dims { display: block }
+.cover { background: #000 !important; --bg: #000; --tx: #eceef1; --mu: #a1a6ae; --fa: #737881; --ln: #26282d; --sf: #1f2125; border-radius: 0 }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="cap">WakeUp v3 · widgets, draft 2</div>
+    <h1>Home-screen widgets, measured</h1>
+    <p class="lede">Every widget below is drawn at the size your own launchers hand to a widget, read from the Z Flip and the Tab S9 over adb. One dp is one pixel on this page. Turn on Spacing to see the padding, rows and type boxes. Row counts and the timeline scale are worked out from the size, so what you see is what fits.</p>
+  </header>
+
+  <div class="bar" role="toolbar" aria-label="View">
+    <div class="seg" aria-label="Widget theme"><button type="button" data-theme-w="light" aria-pressed="true">Light widgets</button><button type="button" data-theme-w="dark" aria-pressed="false">Dark widgets</button></div>
+    <div class="seg" aria-label="Spacing"><button type="button" id="guidesBtn" aria-pressed="false">Show spacing</button></div>
+  </div>
+
+  <section>
+    <h2>The measurements</h2>
+    <div class="grid2">
+      <div class="tbl"><table>
+        <thead><tr><th>Where</th><th>Screen</th><th>One cell</th><th>Drawn at</th></tr></thead>
+        <tbody id="devTable"></tbody>
+      </table></div>
+      <div style="display:grid;gap:12px">
+        <div class="rule"><b>Cell and drawn size</b>One UI gives each widget a box of cells and draws standard widgets at 83.3% of it (its own margin). These are the sizes Samsung's weather and photo widgets report on your devices.</div>
+        <div class="rule"><b>Shape</b>Corner radius 24 dp, One UI's own widget radius on both devices. Things inside use 8 (24 − 16 padding), so the corners stay parallel.</div>
+        <div class="rule"><b>Spacing</b>16 dp padding (12 when the widget is under 160 dp wide), an 8 dp gap, 36 dp rows. Every tap target is at least 36 dp tall and spans the row.</div>
+        <div class="rule"><b>Type</b>Label 11 caps, row 13, title 15, hero 28 (34 when the widget is taller than 170 dp). Inter. Times use tabular numbers.</div>
+      </div>
+    </div>
+  </section>
+
+  <div id="widgets" style="display:grid;gap:64px"></div>
+
+  <section>
+    <h2>How they adapt</h2>
+    <div class="grid2">
+      <div class="rule"><b>One layout per size band</b>Android 12+ lets a widget give several layouts; the launcher picks by the size it has. WakeUp gives three: under 160 dp wide (compact), 160–300 (regular), over 300 (wide). Resizing a widget switches layout, never squashes it.</div>
+      <div class="rule"><b>Rows from height</b>Lists show ⌊(height − padding − header − gap) ÷ 36⌋ rows; the header carries the total. The timeline fits the day's first to last class into the height it has.</div>
+      <div class="rule"><b>Updates</b>At each class start and end, every 15 minutes, and right after you change something in WakeUp. Android doesn't allow a ticking clock in a widget, so countdowns are in minutes.</div>
+      <div class="rule"><b>Light and dark</b>Follow Android's setting, so they match the rest of your home screen. No glass: widgets sit on your wallpaper.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Decided (Kim: go with the recommendations)</h2>
+    <div class="rule"><b>Build order: Next class and Due today first</b>Then Today, Exam, Focus and the cover screen. Most study and to-do apps lead with the same two: MyStudyLife's widgets show the next class and the tasks due, and Todoist and TickTick both have a task-list widget where you tick things off from the home screen. They're the ones glanced at many times a day.</div>
+    <div class="rule"><b>Home-screen grid: work on any grid</b>One UI lets you pick 4 or 5 columns. Each widget gets a compact layout for under 160 dp wide, so a 5-column Flip (70 dp cells) still looks right. No setting needed; the launcher's size picks the layout.</div>
+    <div class="rule"><b>Free gaps: say "Free", and name one due task</b>Structured fills open time with tasks from its inbox. WakeUp doesn't know how long a task takes, so it won't claim one "fits". The gap says "Free 11–1 · Lab 3 report due" when something is due that day, and just "Free 11–1" when nothing is.</div>
+    <div class="rule"><b>Exam widget: follows the next exam, and you can pin one</b>Countdown widgets usually ask which event to show when you place them; Apple's Up Next style just follows what's next. WakeUp does both: it follows the next exam by default, and placing it offers "Pin an exam" for one you care about most.</div>
+  </section>
+</div>
+
+<script>
+// ---- measured on Kim's devices (dumpsys appwidget / wm density), in dp ----
+const DEV = {
+  flip:  { name: 'Z Flip, main screen', screen: '360 × 880 dp (1080 × 2640, 480 dpi)', cellW: 88, cellH: 110.8, scale: 0.8333 },
+  tab:   { name: 'Tab S9, landscape', screen: '1316 × 823 dp (2304 × 1440, 280 dpi)', cellW: 108.3, cellH: 107.7, scale: 0.8333 },
+  cover: { name: 'Z Flip, cover screen', screen: '374 × 360 dp (748 × 720, 320 dpi)', cellW: 352, cellH: 339, scale: 1 },
+};
+const size = (d, cols, rows) => { const D = DEV[d]; return { w: Math.round(D.cellW * cols * D.scale * 10) / 10, h: Math.round(D.cellH * rows * D.scale * 10) / 10 }; };
+const PAD = (w) => (w < 160 ? 12 : 16);
+const ROW = 36, GAP = 8;
+
+document.getElementById('devTable').innerHTML = Object.values(DEV).map((D) =>
+  `<tr><td>${D.name}</td><td>${D.screen}</td><td>${D.scale === 1 ? 'whole screen' : `${D.cellW} × ${D.cellH}`}</td><td>${D.scale === 1 ? `${D.cellW} × ${D.cellH}` : `2×2 → ${size(D === DEV.flip ? 'flip' : 'tab', 2, 2).w} × ${size(D === DEV.flip ? 'flip' : 'tab', 2, 2).h}`}</td></tr>`).join('');
+
+// ---- sample data: your real classes ----
+const C = { ccs: ['CCS6314', 'Crypto', '#d0573a'], csn: ['CSN6224', 'Networks', '#7c5cd6'], csp: ['CSP1123', 'Mini IT Project', '#2f6fde'] };
+const TASKS = [
+  { t: 'Lab 3 report', c: 'csp', late: true }, { t: 'Read chapter 4', c: 'ccs' }, { t: 'Submit quiz 2', c: 'csn' },
+  { t: 'Slides for group presentation', c: 'csp' }, { t: 'Revise past year paper', c: 'ccs' }, { t: 'Email lecturer about lab', c: 'csn' },
+];
+const ICON = {
+  video: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
+  plus: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  exam: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>',
+  done: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1f9d63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>',
+  pause: '<svg class="ic" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
+};
+
+// ---- one function per widget: (size) → html. Layout decisions use the size. ----
+function shell(s, inner, extra = '') {
+  const cls = ['w', s.w < 160 ? 'small' : '', s.h >= 170 ? 'tall' : '', extra].join(' ');
+  return `<div class="${cls}" style="width:${s.w}px;height:${s.h}px">${inner}</div>`;
+}
+const W = {
+  next(s, st = 'before') {
+    const [code, name, col] = st === 'live' ? C.csn : C.ccs;
+    const compact = s.w < 160;
+    const top = st === 'live' ? `<span class="dot" style="background:${col}"></span>Now · ends 4:30` : `<span class="dot" style="background:${col}"></span>Next · in 25 min`;
+    // the code's size comes from the width: the widest it can be (28, or 34 when tall) and still fit, at Inter bold's ~0.7 em per capital or digit
+    const pad = PAD(s.w); const hero = Math.min(s.h >= 170 ? 34 : 28, Math.floor((s.w - pad * 2) / (code.length * 0.7)));
+    const body = `<div><div class="hero" style="font-size:${hero}px;line-height:${hero + 4}px">${code}</div><div class="meta ell">${name}${compact ? '' : ' · Lecture'}</div></div>`;
+    const foot = st === 'live'
+      ? `<div class="push" style="display:grid;gap:8px"><div class="prog"><i style="width:62%;background:${col}"></i></div><div class="pill">${ICON.video}Join</div></div>`
+      : `<div class="push meta">3pm – 5pm<br>CQAR1009</div>`;
+    return shell(s, `<div class="lab">${top}</div>${body}${foot}`);
+  },
+  strip(s) {
+    const [code, name, col] = C.ccs;
+    return shell(s, `<div class="hs" style="height:100%"><span style="width:4px;align-self:stretch;border-radius:2px;background:${col}"></span><div class="g"><div class="lab">Next · in 25 min</div><div class="ttl ell">${code} <span class="meta">3pm · CQAR1009</span></div></div></div>`);
+  },
+  due(s, empty = false) {
+    const pad = PAD(s.w); const head = 28;
+    const fit = Math.max(1, Math.floor((s.h - pad * 2 - head - 4) / ROW));
+    if (empty) return shell(s, `<div class="hs"><div class="lab g">Due today</div><div class="add">${ICON.plus}</div></div><div style="flex:1;display:grid;place-items:center;text-align:center;gap:4px;align-content:center">${ICON.done}<div class="rowt">Nothing due today</div><div class="meta">Next: Midterm, Mon 9am</div></div>`);
+    const shown = TASKS.slice(0, fit); // the header already says how many are due, so no "+N more" row
+    const rows = shown.map((x) => `<div class="trow"><span class="circ ${x.late ? 'late' : ''}"></span><span class="rowt g ell">${x.t}</span>${s.w >= 240 ? `<span class="meta" style="${x.late ? 'color:var(--bad);font-weight:600' : ''}">${x.late ? 'Late' : C[x.c][0]}</span>` : ''}</div>`).join('');
+    return shell(s, `<div class="hs" style="height:${head}px"><div class="g"><div class="lab">Due today · ${TASKS.length}</div></div><div class="add" aria-label="Add a task">${ICON.plus}</div></div><div style="display:flex;flex-direction:column">${rows}</div><div class="dims">${fit} rows fit · ${s.w} × ${s.h}</div>`);
+  },
+  today(s) {
+    const pad = PAD(s.w); const head = 40; const foot = 36;
+    const avail = s.h - pad * 2 - head - foot - GAP * 2;
+    const from = 9, to = 17; const ph = avail / (to - from); // px per hour, from the height
+    const y = (h) => (h - from) * ph;
+    const hours = Array.from({ length: to - from }, (_, i) => `<div class="h" style="top:${y(from + i)}px">${((from + i - 1) % 12) + 1}</div>`).join('');
+    const ev = (a, b, [code, , col], sub) => `<div class="ev" style="top:${y(a) + 1}px;height:${(b - a) * ph - 2}px;background:${col}22;border-left:3px solid ${col}"><b>${code}</b>${(b - a) * ph > 34 ? `<span>${sub}</span>` : ''}</div>`;
+    return shell(s, `<div style="height:${head}px"><div class="lab">Thursday 19 Nov · Week 2</div><div class="ttl">2 classes, 3 due</div></div>
+      <div class="tl">${hours}${ev(9, 11, C.csp, 'Lecture · CNMX1001')}<div class="free" style="top:${y(11) + 1}px;height:${2 * ph - 2}px">Free 11–1 · Lab 3 report due</div><div class="now" style="top:${y(13.6)}px"></div>${ev(14, 16, C.csn, 'Tutorial · Online')}</div>
+      <div class="trow" style="height:${foot}px;border-top:1px solid var(--ln)"><span class="circ late"></span><span class="rowt g ell">Lab 3 report</span><span class="meta">+2 more</span></div>
+      <div class="dims">${Math.round(ph)} dp per hour · ${s.w} × ${s.h}</div>`);
+  },
+  exam(s, days = 4) {
+    const warn = days <= 3;
+    return shell(s, `<div class="lab" style="${warn ? 'color:var(--wn)' : ''}">${ICON.exam}Exam</div>
+      <div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:${s.h >= 170 ? 52 : 40}px;line-height:1;font-weight:750;letter-spacing:-.03em;font-variant-numeric:tabular-nums;${warn ? 'color:var(--wn)' : ''}">${days}</span><span class="meta">${days === 1 ? 'day' : 'days'}</span></div>
+      <div class="push"><div class="ttl ell">Midterm</div><div class="hs"><span class="dot" style="background:${C.csp[2]}"></span><span class="meta ell">CSP1123 · Mon 9am</span></div></div>`);
+  },
+  focus(s, running = true) {
+    const r = Math.min(s.w, s.h) * 0.22; const sw = 6; const L = 2 * Math.PI * r;
+    if (!running) return shell(s, `<div class="lab">Focus</div><div><div class="ttl">3 sessions</div><div class="meta">this week · 1 h 15 min</div></div><div class="pill push">Start 25 min</div>`);
+    return shell(s, `<div class="lab"><span class="dot" style="background:${C.ccs[2]}"></span>Focus · CCS6314</div>
+      <div class="hs" style="flex:1"><svg width="${2 * r + sw}" height="${2 * r + sw}" viewBox="0 0 ${2 * r + sw} ${2 * r + sw}" style="flex:none"><circle cx="${r + sw / 2}" cy="${r + sw / 2}" r="${r}" fill="none" stroke="var(--sf)" stroke-width="${sw}"/><circle cx="${r + sw / 2}" cy="${r + sw / 2}" r="${r}" fill="none" stroke="${C.ccs[2]}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${L}" stroke-dashoffset="${L * 0.36}" transform="rotate(-90 ${r + sw / 2} ${r + sw / 2})"/></svg>
+      <div class="g"><div class="ttl" style="font-variant-numeric:tabular-nums">16 min</div><div class="meta">left</div></div></div>
+      <div class="pill ghost">${ICON.pause}Pause</div>`);
+  },
+  cover(s) {
+    const [code, , col] = C.ccs;
+    return shell(s, `<div class="lab"><span class="dot" style="background:${col}"></span>Next · in 25 min</div>
+      <div style="font-size:56px;line-height:60px;font-weight:750;letter-spacing:-.03em">${code}</div>
+      <div class="ttl" style="color:var(--mu);font-weight:500">3pm – 5pm · CQAR1009</div>
+      <div class="push" style="border-top:1px solid var(--ln);padding-top:12px;display:grid;gap:6px">
+        <div class="hs"><span class="circ late"></span><span class="rowt g ell">Lab 3 report</span><span class="meta" style="color:var(--bad)">Late</span></div>
+        <div class="meta">+2 more due today</div></div>`, 'cover');
+  },
+};
+
+// ---- the page: each widget, its spans, its devices, its notes ----
+const LIST = [
+  { id: 'next', title: 'Next class', spans: [[2, 2]], states: [['flip', 2, 2, 'before'], ['tab', 2, 2, 'live']],
+    notes: ['<b>Before a class:</b> how long until it starts, the code big, then time and room at the bottom. The code\'s size is the largest that fits the width: 25 dp on the Flip, 30 on the Tab.', '<b>During it:</b> "ends 4:30", a progress bar in the class colour, and Join when it\'s online.', '<b>Tap:</b> the class page. <b>Join:</b> the Teams or Meet link. A cancelled class shows the next real one.'] },
+  { id: 'strip', title: 'Next class, slim', spans: [[4, 1]], states: [['flip', 4, 1], ['tab', 4, 1]],
+    notes: ['<b>One line</b> for a home screen that\'s already full: colour bar, countdown, code, time and room.', '<b>4 × 1</b> on both devices. Under 300 dp wide it drops the room.'] },
+  { id: 'due', title: 'Due today', spans: [[4, 2], [2, 2]], states: [['flip', 4, 2], ['tab', 4, 2], ['flip', 2, 2], ['tab', 4, 2, 'empty']],
+    notes: ['<b>Rows are worked out from the height:</b> 36 dp each, after the 16 dp padding, the 28 dp header and a 4 dp gap: 3 rows at 4 × 2 on both devices. The header carries the total, so nothing is lost.', '<b>The circle</b> finishes a task without opening the app. <b>+</b> opens quick add with the keyboard up.', '<b>2 × 2</b> drops the class column. <b>Empty</b> says so and shows what\'s next.'] },
+  { id: 'today', title: 'Today', spans: [[4, 4]], states: [['flip', 4, 4], ['tab', 4, 4]],
+    notes: ['<b>The timeline scales to fit:</b> first to last class across whatever height is left after the header (40) and the bottom line (36).', '<b>Free gaps</b> are dashed and name a task due that day, if there is one. The red line is now.', '<b>The bottom line</b> is the most urgent thing that isn\'t a class: a late task or the next exam.'] },
+  { id: 'exam', title: 'Exam countdown', spans: [[2, 2]], states: [['flip', 2, 2, 4], ['tab', 2, 2, 1]],
+    notes: ['<b>The number is the point:</b> 40 dp (52 on the taller Flip box), tabular.', '<b>Amber</b> from 3 days before. It follows the next exam; when you place it you can pin one instead.'] },
+  { id: 'focus', title: 'Focus', spans: [[2, 2]], states: [['flip', 2, 2, true], ['tab', 2, 2, false]],
+    notes: ['<b>Running:</b> a ring that\'s 44% of the short side, minutes left (updated each minute), Pause.', '<b>Idle:</b> this week\'s sessions and a Start button with your length.'] },
+  { id: 'cover', title: 'Z Flip cover screen', spans: [['full']], states: [['cover', 1, 1]],
+    notes: ['<b>352 × 339 dp</b>, the size the FlexWindow gives widgets on your Flip (cut-outs for the cameras top and bottom).', '<b>Always black,</b> big type to read at a glance: 56 dp code, 15 dp time and room, then what\'s due.', '<b>Open the phone</b> and WakeUp opens on that class.'] },
+];
+
+const host = document.getElementById('widgets');
+host.innerHTML = LIST.map((x) => `
+  <section>
+    <div class="head"><h2>${x.title}</h2><span class="span">${x.spans.map((p) => (p[0] === 'full' ? 'full cover screen' : `${p[0]} × ${p[1]}`)).join(' and ')}</span></div>
+    <div class="stage">
+      ${x.states.map(([d, c, r, st]) => { const s = size(d, c, r); return `<div class="wallp"><div class="lbl">${DEV[d].name}${d === 'cover' ? '' : ` · ${c} × ${r}`} · ${s.w} × ${s.h} dp</div>${W[x.id](s, st === 'empty' ? true : st)}</div>`; }).join('')}
+      <div class="spec">${x.notes.map((n) => `<p>${n}</p>`).join('')}</div>
+    </div>
+  </section>`).join('');
+// the "Due today" empty state takes the second argument as a flag
+host.querySelectorAll('section')[2].querySelectorAll('.wallp')[3].innerHTML = `<div class="lbl">${DEV.tab.name} · 4 × 2 · empty</div>${W.due(size('tab', 4, 2), true)}`;
+
+// ---- toggles ----
+document.querySelectorAll('[data-theme-w]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-theme-w]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  host.classList.toggle('dk', b.dataset.themeW === 'dark');
+}));
+const g = document.getElementById('guidesBtn');
+g.addEventListener('click', () => { const on = g.getAttribute('aria-pressed') !== 'true'; g.setAttribute('aria-pressed', String(on)); host.classList.toggle('guides', on); });
+</script>

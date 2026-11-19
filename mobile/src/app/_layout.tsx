@@ -13,6 +13,9 @@ import { startIcons } from '../lib/icons';
 import { listenForTaps, registerTopUp, rescheduleSoon } from '../lib/reminders';
 import { useTheme } from '../ui/theme';
 import { useLayout } from '../ui/kit';
+import { GlassLayer } from '../ui/Glass';
+import { ToastHost } from '../ui/Toast';
+import { startWidgets } from '../widgets';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -27,6 +30,7 @@ export default function Root() {
     startUpdates();
     rescheduleSoon();
     registerTopUp();
+    startWidgets();
     return listenForTaps();
   }, []);
   useEffect(() => { SystemUI.setBackgroundColorAsync(c.bg).catch(() => {}); }, [c.bg]);
@@ -34,15 +38,19 @@ export default function Root() {
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <StatusBar style={dark ? 'light' : 'dark'} />
+      <GlassLayer overlay={<ToastHost />}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg }, animation: 'fade_from_bottom' }}>
         <Stack.Protected guard={onboarded}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="settings" options={wide ? { presentation: 'transparentModal', animation: 'fade' } : { presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="focus" options={{ presentation: 'fullScreenModal', animation: 'fade_from_bottom' }} />
           <Stack.Screen name="class" options={wide ? { presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } } : { presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
         <Stack.Protected guard={!onboarded}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
       </Stack>
+      </GlassLayer>
     </SafeAreaProvider>
     </GestureHandlerRootView>
   );

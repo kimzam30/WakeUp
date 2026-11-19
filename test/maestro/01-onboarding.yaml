@@ -1,0 +1,51 @@
+# First run on a clean install, signed out: every onboarding step, back, a class, an app, notifications.
+# Run only on a throwaway device or the emulator: it clears WakeUp's data first.
+appId: my.kimzam.wakeup
+name: onboarding
+---
+- clearState
+- launchApp
+- assertVisible: "Wake up to your day."
+- takeScreenshot: shots/onb-01-welcome
+- tapOn: "Get started"
+- assertVisible: "Keep everything in sync"
+- takeScreenshot: shots/onb-02-sync
+# the on-screen Back retraces a step (Android's own Back is checked in 90-back.yaml)
+- tapOn: "Back"
+- assertVisible: "Wake up to your day."
+- tapOn: "Get started"
+- tapOn: "Use without an account"
+- assertVisible: "When does this trimester run?"
+- tapOn: "e.g. Trimester 2530"
+- inputText: "Trimester 2610"
+- hideKeyboard
+- tapOn: "Starts: not set"
+- takeScreenshot: shots/onb-03-datepicker
+- tapOn: "OK"
+- tapOn: "Ends: not set"
+- tapOn: "OK"
+- takeScreenshot: shots/onb-04-semester
+- tapOn: "Continue"
+- takeScreenshot: shots/onb-05-classes
+- tapOn: "Add a class"
+- assertVisible: "New class"
+# Save with no name or code is refused
+- tapOn: "Save"
+- assertVisible: "New class"
+- takeScreenshot: shots/onb-06-class-empty-save
+- tapOn: "e.g. CSP1123"
+- inputText: "CSP1123"
+- tapOn: "e.g. Mini IT Project"
+- inputText: "Mini IT Project"
+- hideKeyboard
+- tapOn: "Colour #1f9d63"
+- tapOn: "Icon code"
+- tapOn: "Wed"
+- scrollUntilVisible: { element: "e.g. CQAR1001", direction: DOWN }
+- tapOn: "e.g. CQAR1001"
+- inputText: "CQAR1001"
+- hideKeyboard
+- takeScreenshot: shots/onb-07-class-filled
+- tapOn: "Save"
+- assertVisible: "CSP1123.*"
+- takeScreenshot: shots/onb-08-class-added

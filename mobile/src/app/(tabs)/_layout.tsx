@@ -1,22 +1,25 @@
-// One navigator, four shapes: a bottom bar on phones (icons only on the Flip's cover screen), a slim rail on a
-// phone held sideways, and on tablets the desktop app's sidebar: Today, Timetable and Tasks, then your apps by
-// name, then Settings below a line. A landscape tablet shows it with labels (collapsible to a rail); portrait shows
-// the rail. Tabs are peers: a quick cross-fade between them, no slide, and each keeps its state.
-import { Tabs } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+// One navigator, four shapes. Phones: a floating glass bar (Today, Timetable, Tasks, Apps) with the liquid highlight
+// (docs/DESIGN.md → Motion: two springs, the leading edge stiff and the trailing edge soft, so it stretches toward the
+// new tab and settles). Settings opens from your avatar on Today. A phone on its side gets a slim rail; tablets get the
+// desktop app's sidebar with Settings at the bottom. Tabs are peers: a quick cross-fade, no slide, each keeps its state.
+import { Tabs, router, usePathname } from 'expo-router';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../../lib/haptics';
 import { Icon } from '../../ui/Icon';
 import { AppTile } from '../../ui/AppTile';
 import { Avatar } from '../../ui/Avatar';
 import { Logo } from '../../ui/Logo';
-import { useLayout } from '../../ui/kit';
+import { Glass, GlassLayer } from '../../ui/Glass';
+import { BarSpace, useLayout } from '../../ui/kit';
 import { R, S, T, useTheme } from '../../ui/theme';
 import { allApps, baseOf, focusedApp, kv, openApp, openSplit, useStore } from '../../lib/store';
 import { useToday } from '../../lib/hooks';
 
-const TABS: [string, string, string][] = [['index', 'Today', 'home'], ['timetable', 'Timetable', 'cal'], ['tasks', 'Tasks', 'tasks'], ['apps', 'Apps', 'apps'], ['settings', 'Settings', 'settings']];
+const TABS: [string, string, string, string][] = [['index', 'Today', 'home', '/'], ['timetable', 'Timetable', 'cal', '/timetable'], ['tasks', 'Tasks', 'tasks', '/tasks'], ['apps', 'Apps', 'apps', '/apps']];
+const BAR_H = 64;
 
 type BarProps = { state: { index: number; routes: { key: string; name: string }[] }; navigateToTab: (routeKey: string) => void };
 
@@ -29,7 +32,7 @@ let collapsedSaved = kv.get<boolean>('nav.collapsed', false);
 function Bar(p: BarProps) {
   const { size, sideways } = useLayout();
   if (size === 'medium' || size === 'expanded') return <SideBar {...p} />;
-  return <BottomBar {...p} rail={sideways} />;
+  return sideways ? <BottomBar {...p} rail /> : null;
 }
 
 // Phones: a bottom bar (a slim rail when held sideways)
@@ -131,15 +134,65 @@ function SideBar({ state, navigateToTab }: BarProps) {
         }) : page('apps', 'Apps', 'apps')}
       </ScrollView>
       <View style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: S(2) }}>
-        {/* signed in: your profile picture sits beside Settings (or takes the gear's place on the rail) */}
-        {sync.signedIn ? (() => {
-          const on = route === 'settings';
-          const pic = <Avatar sync={sync} size={labels ? 24 : 30} />;
-          return labels
-            ? item('settings', 'Settings', <Icon name="settings" size={20} color={on ? c.text : c.faint} />, on, () => tab('settings'), 0, false, undefined, pic)
-            : item('settings', `Settings, signed in as ${sync.name || sync.email}`, pic, on, () => tab('settings'));
-        })() : page('settings', 'Settings', 'settings')}
+        {/* Settings is its own screen now (it opens from your avatar on phones); signed in, your picture sits beside it */}
+        {item('settings', 'Settings',
+          sync.signedIn && !labels ? <Avatar sync={sync} size={30} /> : <Icon name="settings" size={20} color={c.faint} />,
+          false, () => { haptic('tap'); router.push('/settings'); }, 0, false, undefined, sync.signedIn && labels ? <Avatar sync={sync} size={24} /> : undefined)}
       </View>
+    </View>
+  );
+}
+
+// Phones: the floating glass bar. It lives beside the navigator (not inside it) so the blur can see the screens.
+function FloatingBar() {
+  const { c } = useTheme();
+  const { size } = useLayout();
+  const insets = useSafeAreaInsets();
+  const path = usePathname();
+  const due = useDue();
+  const reduce = useReducedMotion();
+  const icons = size === 'cover';
+  const at = Math.max(0, TABS.findIndex((t) => t[3] !== '/' && (path === t[3] || path.startsWith(`${t[3]}/`))));
+  const [w, setW] = useState(0);
+  const PAD = 6;
+  const slot = w ? (w - PAD * 2) / TABS.length : 0;
+  // the two edges of the highlight; whichever leads the move springs stiff, the other soft
+  const left = useSharedValue(0); const right = useSharedValue(0); const ready = useSharedValue(0);
+  useEffect(() => {
+    if (!slot) return;
+    const L = PAD + at * slot; const Rt = L + slot;
+    if (!ready.value || reduce) { left.set(L); right.set(Rt); ready.set(1); return; }
+    const stiff = { stiffness: 520, damping: 33, mass: 1 }; const soft = { stiffness: 260, damping: 23, mass: 1 };
+    const goingRight = L > left.value;
+    left.set(withSpring(L, goingRight ? soft : stiff));
+    right.set(withSpring(Rt, goingRight ? stiff : soft));
+  }, [at, slot, reduce, left, right, ready]);
+  const pill = useAnimatedStyle(() => ({ left: left.value, width: Math.max(0, right.value - left.value), opacity: withTiming(ready.value, { duration: 120 }) }));
+  const go = (i: number) => {
+    if (i !== at) haptic('tap');
+    router.navigate(TABS[i][3] as '/');
+  };
+  return (
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: insets.bottom + S(2), paddingHorizontal: icons ? S(3) : S(4), alignItems: 'center' }}>
+      <Glass radius={R.pill} style={{ width: '100%', maxWidth: 440 }}>
+        <View accessibilityRole="tablist" onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)} style={{ height: icons ? 56 : BAR_H, flexDirection: 'row', paddingHorizontal: PAD, alignItems: 'center' }}>
+          <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: PAD, bottom: PAD, borderRadius: R.pill, borderCurve: 'continuous', backgroundColor: c.accentSoft }, pill]} />
+          {TABS.map(([name, label, icon], i) => {
+            const on = i === at; const fg = on ? c.accentText : c.muted;
+            const badge = name === 'tasks' ? due : 0;
+            return (
+              <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={badge ? `${label}, ${badge} due` : label} onPress={() => go(i)}
+                style={{ flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                <View>
+                  <Icon name={icon} size={22} color={fg} stroke={on ? 2 : 1.75} />
+                  {badge ? <View style={{ position: 'absolute', top: -5, right: -10, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{badge}</Text></View> : null}
+                </View>
+                {!icons ? <Text numberOfLines={1} style={[T.tiny, { letterSpacing: 0, fontSize: 11, color: on ? c.accentText : c.muted, fontWeight: on ? '700' : '500' }]}>{label}</Text> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      </Glass>
     </View>
   );
 }
@@ -147,13 +200,21 @@ function SideBar({ state, navigateToTab }: BarProps) {
 export default function TabsLayout() {
   const { c } = useTheme();
   const { size, sideways } = useLayout();
+  const insets = useSafeAreaInsets();
   const side = size === 'medium' || size === 'expanded' || sideways;
-  return (
+  const floating = !side;
+  const tabs = (
     <Tabs
       tabBar={(p) => <Bar {...(p as unknown as BarProps)} />}
       screenOptions={{ headerShown: false, tabBarPosition: side ? 'left' : 'bottom', sceneStyle: { backgroundColor: c.bg }, animation: 'fade', transitionSpec: { animation: 'timing', config: { duration: 140 } }, lazy: true }}
     >
       {TABS.map(([name, title]) => <Tabs.Screen key={name} name={name} options={{ title }} />)}
     </Tabs>
+  );
+  if (!floating) return tabs;
+  return (
+    <BarSpace.Provider value={(size === 'cover' ? 56 : BAR_H) + S(2) + insets.bottom}>
+      <GlassLayer overlay={<FloatingBar />}>{tabs}</GlassLayer>
+    </BarSpace.Provider>
   );
 }

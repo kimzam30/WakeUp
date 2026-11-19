@@ -1,0 +1,105 @@
+# Tasks + focus on a device that finished 01-onboarding (it has class CSP1123). Writes local data only (signed out).
+appId: my.kimzam.wakeup
+name: tasks
+---
+- runFlow: sub/fresh.yaml
+- runFlow: { file: sub/tab.yaml, env: { TAB: Tasks } }
+- assertVisible: "Focus"
+# empty add is refused (button disabled)
+- tapOn: "Add"
+- assertVisible: "Nothing to do yet"
+# quick add: today
+- tapOn: "New task"
+- inputText: "Read chapter 3"
+- tapOn: "Add"
+- assertVisible: "Read chapter 3"
+# tomorrow + class
+- tapOn: "New task"
+- inputText: "Lab report draft"
+- tapOn: "Tomorrow"
+- tapOn: "CSP1123"
+- tapOn: "Add"
+- assertVisible: "Lab report draft"
+# quick add starts fresh: no class stays picked (audit M1)
+- assertNotVisible: { text: "CSP1123", checked: true }
+# no date, submit with the keyboard's done key
+- tapOn: "New task"
+- inputText: "Buy a USB drive"
+- tapOn: "No date"
+- pressKey: Enter
+- assertVisible: "Buy a USB drive"
+# long text (wraps, not cut)
+- tapOn: "New task"
+- inputText: "Prepare slides for the group presentation on database normalisation with examples from the mini IT project and send them to everyone"
+- tapOn: "Add"
+- takeScreenshot: shots/tasks-01-list
+# swipe right on a row: done
+- hideKeyboard
+- scrollUntilVisible: { element: "Read chapter 3", direction: DOWN, centerElement: true }
+- swipe: { from: { text: "Read chapter 3" }, direction: RIGHT, duration: 400 }
+- takeScreenshot: shots/tasks-02-swiped-done
+# the toast offers Undo; it puts the task back, then finish it again
+- assertVisible: "Done: Read chapter 3"
+- tapOn: "Undo"
+- swipe: { from: { text: "Read chapter 3" }, direction: RIGHT, duration: 400 }
+# open a task: edit sheet (it's due tomorrow, further down; the keyboard is already closed)
+- scrollUntilVisible: { element: "Lab report draft", direction: DOWN, centerElement: true }
+- tapOn: "Lab report draft"
+- assertVisible: "Focus on this task"
+- takeScreenshot: shots/tasks-03-editor
+# clearing the text blocks saving
+- tapOn: { text: "Lab report draft", below: "What" }
+- eraseText: 40
+- assertVisible: "A task needs some words."
+- inputText: "Lab report final"
+- tapOn: "Save"
+- assertVisible: "Lab report final"
+# focus on a task from its sheet
+- tapOn: "Lab report final"
+- tapOn: "Focus on this task"
+- assertVisible: "Lab report final"
+- takeScreenshot: shots/tasks-04-focusing
+- tapOn: "Stop"
+- tapOn: "Close focus"
+# swipe left: delete (hideKeyboard would press Back with no keyboard open, so go to the tab instead)
+- runFlow: { file: sub/tab.yaml, env: { TAB: Tasks } }
+- scrollUntilVisible: { element: "Buy a USB drive", direction: DOWN, centerElement: true }
+- swipe: { from: { text: "Buy a USB drive" }, direction: LEFT, duration: 400 }
+- takeScreenshot: shots/tasks-05-swiped-left
+- tapOn: "Delete"
+# deleted with Undo (audit M3): Undo brings it back
+- assertVisible: "Deleted: Buy a USB drive"
+- takeScreenshot: shots/tasks-06-after-delete
+- tapOn: "Undo"
+- assertVisible: "Buy a USB drive"
+# focus timer card: start, pause, resume, stop
+- tapOn: "Start"
+- takeScreenshot: shots/tasks-07-focus-running
+- assertVisible: "Pause|Stop|.*:.*"
+- tapOn: { text: "Pause", optional: true }
+- takeScreenshot: shots/tasks-08-focus-paused
+- tapOn: { text: "Resume", optional: true }
+- tapOn: { text: "Stop", optional: true }
+- takeScreenshot: shots/tasks-09-focus-stopped
+# lengths: 50/10, then custom
+- tapOn: "50 / 10"
+- assertVisible: "50:00"
+- tapOn: "Custom"
+- assertVisible: "40 min"
+- tapOn: "25 / 5"
+- tapOn: "Close focus"
+# an exam from quick add: it gets the exam line
+- tapOn: "New task"
+- inputText: "Midterm"
+- tapOn: "Tomorrow"
+- tapOn: "Exam"
+- tapOn: "Add"
+- hideKeyboard
+- scrollUntilVisible: { element: "Midterm", direction: DOWN, centerElement: true }
+- assertVisible: "Exam"
+- takeScreenshot: shots/tasks-10-exam
+# kill and relaunch: tasks are still there
+- stopApp
+- launchApp
+- runFlow: { file: sub/tab.yaml, env: { TAB: Tasks } }
+- assertVisible: "Lab report final"

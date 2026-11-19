@@ -1,0 +1,9 @@
+# go to a tab by name: runFlow with env TAB = Today | Timetable | Tasks | Apps | Settings
+# (Settings isn't a tab since v3: it opens from the avatar at the top right of Today)
+appId: my.kimzam.wakeup
+---
+- runFlow: { when: { true: "${TAB == 'Today'}" }, commands: [ { tapOn: { text: "Today", leftOf: "Timetable" } } ] }
+- runFlow: { when: { true: "${TAB == 'Timetable'}" }, commands: [ { tapOn: { text: "Timetable", leftOf: "Tasks" } } ] }
+- runFlow: { when: { true: "${TAB == 'Tasks'}" }, commands: [ { tapOn: { text: "Tasks", rightOf: "Timetable" } } ] }
+- runFlow: { when: { true: "${TAB == 'Apps'}" }, commands: [ { tapOn: { text: "Apps", rightOf: "Tasks" } } ] }
+- runFlow: { when: { true: "${TAB == 'Settings'}" }, commands: [ { tapOn: { text: "Today", leftOf: "Timetable" } }, { tapOn: "Settings" } ] }

@@ -1,0 +1,50 @@
+# Settings (v3): opens from the avatar on Today as a list; each section is its own page. Open every section, check
+# its content, go back with Android Back, flip theme and accent, add a custom app (bad URL, then a good one), close.
+appId: my.kimzam.wakeup
+name: settings
+---
+- runFlow: sub/fresh.yaml
+- runFlow: { file: sub/tab.yaml, env: { TAB: Settings } }
+- assertVisible: "Sign in to sync"
+- takeScreenshot: shots/set-01-list
+- tapOn: "Notifications"
+- assertVisible: "Before each class"
+- takeScreenshot: shots/set-02-notify
+- back
+- tapOn: "Timetable"
+- assertVisible: "Show classes as"
+- back
+- tapOn: "Apps"
+- assertVisible: "Add an app"
+- tapOn: "Add an app"
+- tapOn: { text: "https://…" }
+- inputText: "http://example.com"
+- tapOn: { text: "Add", rightOf: "Cancel" }
+- assertVisible: "Only secure (https) sites can be added."
+- tapOn: { text: "https://…|http://example.com" }
+- eraseText: 40
+- inputText: "example.com"
+- hideKeyboard
+- tapOn: { text: "Add", rightOf: "Cancel" }
+- assertVisible: "example.com"
+- takeScreenshot: shots/set-03-apps
+- back
+- tapOn: "Appearance and you"
+- assertVisible: "Accent colour"
+- tapOn: "Dark"
+- takeScreenshot: shots/set-04-dark
+- tapOn: "Green"
+- tapOn: "Light"
+- scrollUntilVisible: { element: "Today page" }
+- assertNotVisible: "Recent files"
+- takeScreenshot: shots/set-05-today-page
+- back
+- tapOn: "Privacy & Legal"
+- assertVisible: "Privacy policy"
+- assertNotVisible: "Who we are"
+- back
+- tapOn: "About"
+- assertVisible: "Check for updates automatically"
+- back
+- back
+- assertVisible: "Customize Today"

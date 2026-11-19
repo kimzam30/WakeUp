@@ -20,7 +20,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": true,
+      "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
@@ -60,8 +60,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/android-icon-monochrome.png",
-          "color": "#2F6FDE"
+          "icon": "./assets/notification-icon.png",
+          "color": "#2b63d9"
         }
       ],
       "@react-native-community/datetimepicker",
@@ -81,7 +81,136 @@
         }
       ],
       "./plugins/release-signing.js",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Inter",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/inter/800ExtraBold/Inter_800ExtraBold.ttf",
+                    "weight": 800
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "./plugins/samsung-cover-widget.js",
+      [
+        "react-native-android-widget",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf",
+            "./node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf",
+            "./node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf"
+          ],
+          "widgets": [
+            {
+              "name": "NextClass",
+              "label": "Next class",
+              "description": "Your next class, with Join when it\u2019s online",
+              "minWidth": "110dp",
+              "minHeight": "50dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "420dp",
+              "maxResizeHeight": "260dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-next.png"
+            },
+            {
+              "name": "DueToday",
+              "label": "Due today",
+              "description": "Tasks due today; tick them off here",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "480dp",
+              "maxResizeHeight": "420dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-due.png"
+            },
+            {
+              "name": "TodayTimeline",
+              "label": "Today",
+              "description": "Your day: classes, free time and what\u2019s due",
+              "minWidth": "250dp",
+              "minHeight": "250dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 4,
+              "maxResizeWidth": "520dp",
+              "maxResizeHeight": "640dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-today.png"
+            },
+            {
+              "name": "ExamCountdown",
+              "label": "Exam countdown",
+              "description": "Days until your next exam",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "320dp",
+              "maxResizeHeight": "320dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-exam.png"
+            },
+            {
+              "name": "FocusWidget",
+              "label": "Focus",
+              "description": "Start, pause and see your focus sessions",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "320dp",
+              "maxResizeHeight": "320dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-focus.png"
+            },
+            {
+              "name": "CoverScreen",
+              "label": "WakeUp (cover screen)",
+              "description": "Your next class on the Flip\u2019s cover screen",
+              "minWidth": "352dp",
+              "minHeight": "339dp",
+              "widgetCategory": "keyguard",
+              "resizeMode": "none",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-cover.png"
+            }
+          ]
+        }
+      ]
     ]
   }
 }

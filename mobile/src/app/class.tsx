@@ -102,14 +102,15 @@ export default function ClassEditor() {
                 <View style={{ flex: 1 }} />
                 {d.sessions.length > 1 ? <IconButton icon="trash" label="Remove this session" onPress={() => set({ sessions: d.sessions.filter((_, j) => j !== i) })} /> : null}
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: S(1) }}>
+              {/* all seven days share the row, so none is cut off (audit M4) */}
+              <View style={{ flexDirection: 'row', gap: S(1) }}>
                 {[1, 2, 3, 4, 5, 6, 0].map((day) => (
                   <Pressable key={day} accessibilityRole="radio" accessibilityState={{ checked: s.day === day }} accessibilityLabel={DAYS[day]} onPress={() => setS(i, { day })}
-                    style={{ minWidth: 48, height: 40, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: s.day === day ? c.accent : c.sunken, borderWidth: 1, borderColor: s.day === day ? c.accent : c.line }}>
-                    <Txt kind="small" style={{ color: s.day === day ? '#fff' : c.text, fontWeight: '600' }}>{DAYS[day]}</Txt>
+                    style={{ flex: 1, minWidth: 0, height: 40, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: s.day === day ? c.accent : c.sunken, borderWidth: 1, borderColor: s.day === day ? c.accent : c.line }}>
+                    <Txt kind="small" numberOfLines={1} style={{ color: s.day === day ? '#fff' : c.text, fontWeight: '600' }}>{DAYS[day]}</Txt>
                   </Pressable>
                 ))}
-              </ScrollView>
+              </View>
               <View style={{ flexDirection: 'row', gap: S(3) }}>
                 <TimeField label="Starts" value={s.start} onChange={(start) => setS(i, { start })} />
                 <TimeField label="Ends" value={s.end} onChange={(end) => setS(i, { end })} />

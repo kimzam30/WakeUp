@@ -5,7 +5,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
-import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Pick, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
+import { Button, Card, Chip, Divider, Empty, Field, Head, IconButton, Line, Page, Pick, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
 import { ClassIcon } from '../../ui/ClassBits';
 import { SwipePager } from '../../ui/motion';
 import { DateField, TimeField } from '../../ui/DateField';
@@ -82,27 +82,23 @@ export default function Timetable() {
       {!planner.classes.length ? (
         <Page>{header}<Empty icon="cal" title="Add your classes once" body="Each class repeats every week for the semester, skipping breaks. You can cancel, move or put a single date online, or add a replacement." action={cover ? undefined : <Button kind="primary" icon="plus" label="Add class" onPress={() => router.push('/class')} />} /></Page>
       ) : view === 'list' ? (
-        <Page max={cover ? 420 : 760}>
+        <Page max={cover ? 420 : 760} gap={S(7)}>
           {header}
           {byDay.filter((x) => x.list.length || x.d === today).slice(0, cover ? 2 : undefined).map(({ d, list }) => (
-            <View key={d} style={{ gap: S(2) }}>
-              <Txt kind="tiny" muted>{d === today ? 'TODAY' : d === Planner.addDays(today, 1) ? 'TOMORROW' : fmtDate(d).toUpperCase()}</Txt>
-              <Card>
-                {list.length ? list.map((o, i) => (
-                  <View key={o.key}>
-                    {i ? <Divider inset={64} /> : null}
-                    <Row onPress={() => setSel(o)}>
-                      <ClassIcon cls={o.cls} />
-                      <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
-                        <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
-                        <Txt kind="small" muted numberOfLines={2}>{[`${fmtTime(o.start)}–${fmtTime(o.end)}`, KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
-                        {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
-                      </View>
-                      {STATUS[o.status] ? <Chip label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
-                    </Row>
+            <View key={d} style={{ gap: S(1) }}>
+              <Head title={d === today ? 'Today' : d === Planner.addDays(today, 1) ? 'Tomorrow' : fmtDate(d)} />
+              {list.length ? list.map((o, i) => (
+                <Line key={o.key} first={!i} onPress={() => setSel(o)}>
+                  <Txt kind="small" muted style={{ width: 48, fontVariant: ['tabular-nums'] }}>{fmtTime(o.start)}</Txt>
+                  <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: o.cls.color, opacity: o.live ? 1 : 0.4 }} />
+                  <View style={{ flex: 1, opacity: o.live ? 1 : 0.55 }}>
+                    <Txt kind="headline" numberOfLines={1} style={{ textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}{classSub(o.cls, mode) ? <Txt muted>{`  ${classSub(o.cls, mode)}`}</Txt> : null}</Txt>
+                    <Txt kind="small" muted numberOfLines={2}>{[`until ${fmtTime(o.end)}`, KIND[o.kind], o.section, o.mode === 'online' ? 'Online' : o.venue].filter(Boolean).join(' · ')}</Txt>
+                    {o.notes?.length ? <Txt kind="small" numberOfLines={2} style={{ color: c.warn, fontWeight: '600' }}>{Planner.notesLine(o.notes)}</Txt> : null}
                   </View>
-                )) : <Row><Txt muted>No classes today.</Txt></Row>}
-              </Card>
+                  {STATUS[o.status] ? <Chip small label={STATUS[o.status][0]} tone={STATUS[o.status][1]} /> : null}
+                </Line>
+              )) : <Line first><Txt muted>No classes today.</Txt></Line>}
             </View>
           ))}
         </Page>
@@ -143,14 +139,20 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
   const mode = useStore((s) => s.settings.classLabel);
   const today = useToday();
   const [cardW, setCardW] = useState(0);
-  const shown = byDay.filter((x, i) => i < 5 || x.list.length); // weekends only when something's on
+  // weekdays always; Saturday and Sunday together, when either has something on
+  const weekend = (d: string) => { const g = Planner.parse(d).getDay(); return g === 0 || g === 6; };
+  const busyWeekend = byDay.some((x) => weekend(x.d) && x.list.length);
+  const shown = byDay.filter((x) => !weekend(x.d) || busyWeekend);
+  const phone = size === 'compact';
   const all = shown.flatMap((x) => x.list);
   const from = Math.min(8, ...all.map((o) => Math.floor(Planner.mins(o.start) / 60)));
   const to = Math.max(18, ...all.map((o) => Math.ceil(Planner.mins(o.end) / 60)));
-  const HOUR = 64; const gutter = 44;
-  // columns fill the card's measured width; on narrow windows they keep a readable minimum and scroll sideways
-  const col = Math.max(size === 'compact' ? 128 : 112, // wide enough for a whole status chip (“Replacement”)
-     cardW ? (cardW - 2 - gutter) / shown.length : 0);
+  const HOUR = phone ? 56 : 64; const gutter = phone ? 34 : 44;
+  // columns fill the measured width. Phones fit the whole week (compact blocks, swipe for the next week, tap a
+  // block for its details); bigger screens keep a readable minimum and scroll sideways when they must.
+  const col = phone ? (cardW ? (cardW - gutter) / shown.length : 0)
+    : Math.max(112, cardW ? (cardW - 2 - gutter) / shown.length : 0); // wide enough for a whole status chip (“Replacement”)
+  const tight = col < 90;
   const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
   // when the days don't fit they scroll sideways; when they do, swiping sideways changes the week
   const overflow = !cardW || gutter + col * shown.length + 2 > cardW + 1;
@@ -158,7 +160,7 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
     <Page max={1400}>
       {header}
       <SwipePager onSwipe={onSwipe} enabled={!overflow}>
-      <Card>
+      <View>
         <View onLayout={(e) => setCardW(e.nativeEvent.layout.width)} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={overflow}>
           <View>
@@ -167,9 +169,9 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
               {shown.map(({ d }) => {
                 const dt = Planner.parse(d); const on = d === today;
                 return (
-                  <View key={d} style={{ width: col, paddingVertical: S(2), paddingHorizontal: S(2), borderLeftWidth: 1, borderColor: c.line }}>
-                    <Txt kind="small" muted>{DAYS[dt.getDay()]}</Txt>
-                    <View style={{ alignSelf: 'flex-start', paddingHorizontal: on ? 6 : 0, borderRadius: R.chip, backgroundColor: on ? c.accent : 'transparent' }}>
+                  <View key={d} style={{ width: col, paddingVertical: S(2), paddingHorizontal: tight ? 0 : S(2), alignItems: tight ? 'center' : 'flex-start', borderLeftWidth: 1, borderColor: c.line }}>
+                    <Txt kind="small" muted>{tight ? DAYS[dt.getDay()].slice(0, 2) : DAYS[dt.getDay()]}</Txt>
+                    <View style={{ alignSelf: tight ? 'center' : 'flex-start', paddingHorizontal: on ? 6 : 0, borderRadius: R.chip, backgroundColor: on ? c.accent : 'transparent' }}>
                       <Txt kind="headline" style={{ color: on ? '#fff' : c.text, fontVariant: ['tabular-nums'] }}>{dt.getDate()}</Txt>
                     </View>
                   </View>
@@ -178,29 +180,31 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
             </View>
             <View style={{ flexDirection: 'row', height: (to - from) * HOUR }}>
               <View style={{ width: gutter }}>
-                {Array.from({ length: to - from }, (_, i) => <Txt key={i} kind="small" faint style={{ position: 'absolute', top: i * HOUR + 2, right: 6, fontSize: 11 }}>{fmtTime(`${String(from + i).padStart(2, '0')}:00`)}</Txt>)}
+                {Array.from({ length: to - from }, (_, i) => <Txt key={i} kind="small" faint style={{ position: 'absolute', top: i * HOUR + 2, right: 6, fontSize: 11 }}>{phone ? String(from + i) : fmtTime(`${String(from + i).padStart(2, '0')}:00`)}</Txt>)}
               </View>
               {shown.map(({ d, list }) => (
                 <View key={d} style={{ width: col, borderLeftWidth: 1, borderColor: c.line }}>
                   {Array.from({ length: to - from }, (_, i) => <View key={i} style={{ position: 'absolute', top: i * HOUR, left: 0, right: 0, height: 1, backgroundColor: c.line }} />)}
                   {lanes(list).map(({ o, lane, of }) => {
                     const top = ((Planner.mins(o.start) - from * 60) / 60) * HOUR; const h = ((Planner.mins(o.end) - Planner.mins(o.start)) / 60) * HOUR;
-                    const w = (col - 6) / of;
+                    const w = (col - (tight ? 2 : 6)) / of;
                     const sub = classSub(o.cls, mode);
                     const chip = STATUS[o.status]; const extra = chip && h >= 44 ? 26 : 0; // the status chip sits at the bottom of the block, like desktop
                     const dashed = o.status !== 'normal' && o.status !== 'online';
                     return (
                       <Pressable key={o.key} accessibilityRole="button" accessibilityLabel={`${classLabel(o.cls, mode)} ${fmtTime(o.start)}${chip ? `, ${chip[0]}` : ''}`} onPress={() => onPick(o)}
-                        style={({ pressed }) => ({ position: 'absolute', top: top + 2, left: 3 + lane * w, width: w - (of > 1 ? 2 : 0), height: h - 4, borderRadius: 8, borderCurve: 'continuous', padding: S(2), gap: 1, overflow: 'hidden',
+                        style={({ pressed }) => ({ position: 'absolute', top: top + 2, left: (tight ? 1 : 3) + lane * w, width: w - (of > 1 ? 2 : 0), height: h - 4, borderRadius: tight ? 6 : 8, borderCurve: 'continuous', padding: tight ? 3 : S(2), gap: 1, overflow: 'hidden',
                           backgroundColor: `${o.cls.color}${pressed || picked === o.key ? '33' : '1f'}`, borderLeftWidth: 3, borderLeftColor: o.cls.color, opacity: o.live ? 1 : 0.5,
                           ...(dashed ? { borderWidth: 1, borderLeftWidth: 3, borderStyle: 'dashed' as const, borderColor: o.live ? o.cls.color : c.line } : null),
                           outlineWidth: picked === o.key ? 2 : 0, outlineColor: o.cls.color })}>
-                        <Txt kind="small" numberOfLines={1} style={{ fontWeight: '700', textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}</Txt>
+                        <Txt kind="small" numberOfLines={1} adjustsFontSizeToFit={tight} minimumFontScale={0.6} style={{ fontWeight: '700', fontSize: tight ? 11 : 13, lineHeight: tight ? 12 : 18, textDecorationLine: o.live ? 'none' : 'line-through' }}>{classLabel(o.cls, mode)}</Txt>
+                        {tight ? (chip ? <View style={{ marginTop: 'auto', width: 6, height: 6, borderRadius: 3, backgroundColor: c[chip[1]] }} /> : null) : <>
                         {sub && h > 60 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontWeight: '500', fontSize: 12 }}>{sub}</Txt> : null}
                         {h > 44 + extra ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{[KIND[o.kind], o.section].filter(Boolean).join(' · ')}</Txt> : null}
                         {h > 76 + extra && !o.notes?.length ? <Txt kind="small" muted numberOfLines={1} style={{ fontSize: 12 }}>{o.mode === 'online' ? 'Online' : o.venue}</Txt> : null}
                         {o.notes?.length && h > 76 + extra ? <Txt kind="small" numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: c.warn }}>{o.notes.map((n) => Planner.NOTE_TAGS[n.tag ?? 'other']?.[0] ?? 'Note').join(' · ')}</Txt> : null}
                         {chip && h >= 44 ? <View style={{ marginTop: 'auto', maxWidth: '100%' }}><Chip label={chip[0]} tone={chip[1]} small={col < 132} /></View> : null}
+                        </>}
                       </Pressable>
                     );
                   })}
@@ -210,7 +214,7 @@ function WeekGrid({ header, byDay, onPick, picked, onSwipe }: { header: ReactNod
             </View>
           </View>
         </ScrollView>
-      </Card>
+      </View>
       </SwipePager>
     </Page>
   );

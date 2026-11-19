@@ -1,6 +1,6 @@
 // Small building blocks used by every screen. Shape lock (theme.ts): pills for actions, 14 for cards,
 // 10 for inputs and rows, 6 for chips. Press feedback is a background highlight on rows and a slight scale on buttons.
-import { forwardRef, useEffect, type ComponentRef, type ReactNode } from 'react';
+import { createContext, forwardRef, useContext, useEffect, type ComponentRef, type ReactNode } from 'react';
 import {
   Dimensions, Modal, Pressable, ScrollView, Switch as RNSwitch, Text, TextInput, View, useWindowDimensions,
   type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, KeyboardAvoidingView,
@@ -35,7 +35,11 @@ export function useLayout() {
   };
 }
 
-export function Txt({ style, muted, faint, kind = 'body', ...p }: { kind?: keyof typeof T; muted?: boolean; faint?: boolean; style?: StyleProp<TextStyle>; children?: ReactNode; numberOfLines?: number; selectable?: boolean }) {
+// How much room the floating tab bar takes at the bottom of a tab's screen (0 where there is no floating bar)
+export const BarSpace = createContext(0);
+export const useBarSpace = () => useContext(BarSpace);
+
+export function Txt({ style, muted, faint, kind = 'body', ...p }: { kind?: keyof typeof T; muted?: boolean; faint?: boolean; style?: StyleProp<TextStyle>; children?: ReactNode; numberOfLines?: number; selectable?: boolean; adjustsFontSizeToFit?: boolean; minimumFontScale?: number }) {
   const { c } = useTheme();
   return <Text {...p} style={[T[kind], { color: muted ? c.muted : faint ? c.faint : c.text }, style]} />;
 }
@@ -45,7 +49,8 @@ export function Page({ children, pad = true, max = 760, refresh, gap }: { childr
   const { c } = useTheme();
   const { size } = useLayout();
   const insets = useSafeAreaInsets();
-  const side = size === 'cover' ? S(3) : size === 'compact' ? S(4) : S(8);
+  const bar = useBarSpace();
+  const side = size === 'cover' ? S(3) : size === 'compact' ? S(5) : S(8);
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
       <ScrollView
@@ -53,7 +58,7 @@ export function Page({ children, pad = true, max = 760, refresh, gap }: { childr
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={{ paddingTop: pad ? Math.max(insets.top, S(4)) + S(2) : 0, paddingBottom: S(10), paddingHorizontal: side, alignItems: 'center' }}
+        contentContainerStyle={{ paddingTop: pad ? Math.max(insets.top, S(4)) + S(2) : 0, paddingBottom: S(10) + bar, paddingHorizontal: side, alignItems: 'center' }}
       >
         {refresh}
         <View style={{ width: '100%', maxWidth: max, gap: gap ?? (size === 'cover' ? S(4) : S(6)) }}>{children}</View>
@@ -250,3 +255,39 @@ export function Empty({ icon, title, body, action }: { icon: string; title: stri
     </View>
   );
 }
+
+// Paper (docs/DESIGN.md): pages are flat lists with hairlines. A section's small caps label…
+export function Caption({ children }: { children: string }) {
+  const { c } = useTheme();
+  return <Txt kind="tiny" style={{ color: c.muted, textTransform: 'uppercase' }}>{children}</Txt>;
+}
+// …a section title with an optional count and a link on the right…
+export function Head({ title, count, link, onLink, tone }: { title: string; count?: number; link?: string; onLink?: () => void; tone?: string }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 32 }}>
+      <Txt kind="title" style={{ fontSize: 20, lineHeight: 26, color: tone ?? c.text }}>{title}{count != null ? <Txt kind="title" style={{ fontSize: 20, lineHeight: 26, color: c.faint, fontWeight: '500' }}>{`  ${count}`}</Txt> : null}</Txt>
+      {link ? <Pressable accessibilityRole="link" hitSlop={8} onPress={onLink}><Txt kind="small" style={{ color: c.accentText, fontWeight: '600' }}>{link}</Txt></Pressable> : null}
+    </View>
+  );
+}
+// …and a flat row with a hairline above it (none above the first)
+export function Line({ children, first, onPress }: { children: ReactNode; first?: boolean; onPress?: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable onPress={onPress} disabled={!onPress}
+      style={({ pressed }) => ({ minHeight: 52, paddingVertical: S(3), flexDirection: 'row', alignItems: 'center', gap: S(3), borderTopWidth: first ? 0 : 1, borderColor: c.line, backgroundColor: pressed && onPress ? c.hover : 'transparent', marginHorizontal: -S(2), paddingHorizontal: S(2), borderRadius: pressed && onPress ? R.input : 0 })}>
+      {children}
+    </Pressable>
+  );
+}
+// a class as its colour dot and name, in place of a chip
+export function ClassTag({ color, label }: { color: string; label: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 110 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+      <Txt kind="small" muted numberOfLines={1} style={[T.small, { flexShrink: 1 }]}>{label}</Txt>
+    </View>
+  );
+}
+

@@ -1,21 +1,21 @@
-// Settings: account and sync, notifications, timetable, apps, appearance. Same words as the desktop app.
-// Phones get one grouped list; landscape tablets get sections on the left and details on the right.
+// Settings' sections (the routes are src/app/settings/*): account and sync, notifications, timetable, apps,
+// appearance, privacy, about. Same words as the desktop app. Phones get a grouped list with a sub-page per
+// section; landscape tablets get sections on the left and details on the right.
 import { useEffect, useState } from 'react';
 import { Alert, AppState, Linking, Pressable, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
-import { Button, Card, Divider, Field, Page, Row, Section, Segmented, Sheet, Switch, Txt, useLayout } from '../../ui/kit';
-import { Icon } from '../../ui/Icon';
-import { R, S, useTheme } from '../../ui/theme';
-import { TimeField } from '../../ui/DateField';
-import { BUILTIN_APPS, closeApp, setOnboarded, setSettings, useStore } from '../../lib/store';
-import { cancelUpdate, checkForUpdate, installUpdate, setAutoUpdate, useUpdate } from '../../lib/updater';
-import { deleteCloudData, flush, retryRefused, signIn, signOut } from '../../lib/sync';
-import { askPermission, openSystemSettings, permission, rescheduleSoon, type Permission } from '../../lib/reminders';
-import { fmtTime } from '../../lib/format';
-import type { WebApp } from '../../lib/types';
-import { Legal, Look } from '../../lib/shared';
-import { Avatar } from '../../ui/Avatar';
+import { Button, Card, Divider, Field, Row, Segmented, Sheet, Switch, Txt, useLayout } from './kit';
+import { Icon } from './Icon';
+import { S, useTheme } from './theme';
+import { TimeField } from './DateField';
+import { BUILTIN_APPS, closeApp, setOnboarded, setSettings, useStore } from '../lib/store';
+import { cancelUpdate, checkForUpdate, installUpdate, setAutoUpdate, useUpdate } from '../lib/updater';
+import { deleteCloudData, flush, retryRefused, signIn, signOut } from '../lib/sync';
+import { askPermission, openSystemSettings, permission, rescheduleSoon, type Permission } from '../lib/reminders';
+import { fmtTime } from '../lib/format';
+import type { WebApp } from '../lib/types';
+import { Legal, Look } from '../lib/shared';
+import { Avatar } from './Avatar';
 
 const AI: [string, string, string][] = [
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
@@ -24,52 +24,10 @@ const AI: [string, string, string][] = [
 ];
 const ago = (iso: string | null) => { if (!iso) return 'not yet'; const m = Math.round((Date.now() - Date.parse(iso)) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
 
-type SecId = 'sync' | 'notify' | 'timetable' | 'apps' | 'you' | 'privacy' | 'about';
-const SECTIONS: [SecId, string, string][] = [['sync', 'Account and sync', 'cloud'], ['notify', 'Notifications', 'bell'], ['timetable', 'Timetable', 'cal'], ['apps', 'Apps', 'apps'], ['you', 'Appearance and you', 'palette'], ['privacy', 'Privacy & Legal', 'scale'], ['about', 'About', 'info']];
+export type SecId = 'sync' | 'notify' | 'timetable' | 'apps' | 'you' | 'privacy' | 'about';
+export const SECTIONS: [SecId, string, string][] = [['sync', 'Account and sync', 'cloud'], ['notify', 'Notifications', 'bell'], ['timetable', 'Timetable', 'cal'], ['apps', 'Apps', 'apps'], ['you', 'Appearance and you', 'palette'], ['privacy', 'Privacy & Legal', 'scale'], ['about', 'About', 'info']];
 
-export default function Settings() {
-  const { c } = useTheme();
-  const { twoCol } = useLayout();
-  // Today's "Customize" opens Appearance; after that the list on the left decides
-  const { section, at } = useLocalSearchParams<{ section?: SecId; at?: string }>();
-  const [pick, setPick] = useState<{ id: SecId; at?: string }>({ id: 'sync' });
-  const tab: SecId = section && at && at !== pick.at && SECTIONS.some((x) => x[0] === section) ? section : pick.id;
-  const setTab = (id: SecId) => setPick({ id, at });
-  if (!twoCol) {
-    return (
-      <Page>
-        <Txt kind="display">Settings</Txt>
-        {SECTIONS.map(([id, title]) => <Section key={id} title={title}><SectionBody id={id} /></Section>)}
-      </Page>
-    );
-  }
-  // landscape tablets: sections on the left, the chosen one on the right
-  return (
-    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: c.bg }}>
-      <View style={{ width: 300, borderRightWidth: 1, borderColor: c.line, paddingTop: S(10), paddingHorizontal: S(4), gap: S(1) }}>
-        <Txt kind="display" style={{ paddingHorizontal: S(3), marginBottom: S(4) }}>Settings</Txt>
-        {SECTIONS.map(([id, title, icon]) => {
-          const on = id === tab;
-          return (
-            <Pressable key={id} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => setTab(id)}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(3), minHeight: 48, paddingHorizontal: S(3), borderRadius: R.input, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent' })}>
-              <Icon name={icon} color={on ? c.accentText : c.muted} />
-              <Txt style={{ fontWeight: on ? '600' : '500' }}>{title}</Txt>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={{ flex: 1 }}>
-        <Page max={680}>
-          <Txt kind="title">{SECTIONS.find((x) => x[0] === tab)![1]}</Txt>
-          <SectionBody id={tab} />
-        </Page>
-      </View>
-    </View>
-  );
-}
-
-function SectionBody({ id }: { id: SecId }) {
+export function SectionBody({ id }: { id: SecId }) {
   if (id === 'sync') return <SyncCard />;
   if (id === 'notify') return <NotifyCard />;
   if (id === 'timetable') return <TimetableCard />;
@@ -258,25 +216,39 @@ function Swatches({ value, onChange }: { value: string; onChange: (id: string) =
   );
 }
 
+// The Today sections a phone or tablet can show (the others are the computer's: recent files, desktop quick add)
+export const MOBILE_TODAY = ['next', 'classes', 'tasks', 'week', 'apps'];
+
 // Today's sections: order and which show. Synced; the phone, tablet and computer each lay them out to fit.
 function TodayCard() {
   const { c } = useTheme();
   const today = useStore((x) => x.settings.today);
   const t = Look.cleanToday(today);
+  const ids = t.order.filter((id) => MOBILE_TODAY.includes(id));
+  // the desktop-only sections sit between these in the synced order, so a move steps past them
+  const move = (id: string, dir: 1 | -1) => {
+    const at = ids.indexOf(id); let v = t;
+    for (let k = 0; k < t.order.length; k++) {
+      v = Look.moveToday(v, id, dir);
+      const now = v.order.filter((x) => MOBILE_TODAY.includes(x)).indexOf(id);
+      if (now !== at || v.order.indexOf(id) === (dir < 0 ? 0 : v.order.length - 1)) break;
+    }
+    setSettings({ today: v });
+  };
   return (
     <View style={{ gap: S(2) }}>
       <Txt kind="headline">Today page</Txt>
       <Txt kind="small" muted>Choose what Today shows and in what order. It syncs; your phone, tablet and computer each lay it out to fit.</Txt>
       <Card>
-        {t.order.map((id, i) => {
+        {ids.map((id, i) => {
           const [, name, desc] = Look.TODAY.find((x) => x[0] === id)!; const on = !t.hidden.includes(id);
           return (
             <View key={id}>
               {i ? <Divider inset={16} /> : null}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingVertical: S(3), paddingLeft: S(4), paddingRight: S(3) }}>
                 <View style={{ flex: 1, gap: 2, opacity: on ? 1 : 0.55 }}><Txt kind="headline" style={{ fontWeight: '500' }}>{name}</Txt><Txt kind="small" muted>{desc}</Txt></View>
-                <MoveBtn dir={-1} name={name} disabled={i === 0} onPress={() => setSettings({ today: Look.moveToday(t, id, -1) })} color={c.muted} />
-                <MoveBtn dir={1} name={name} disabled={i === t.order.length - 1} onPress={() => setSettings({ today: Look.moveToday(t, id, 1) })} color={c.muted} />
+                <MoveBtn dir={-1} name={name} disabled={i === 0} onPress={() => move(id, -1)} color={c.muted} />
+                <MoveBtn dir={1} name={name} disabled={i === ids.length - 1} onPress={() => move(id, 1)} color={c.muted} />
                 <Switch label={`Show ${name}`} value={on} onChange={(v) => setSettings({ today: Look.showToday(t, id, v) })} />
               </View>
             </View>
@@ -333,23 +305,9 @@ function PrivacyCard() {
         </> : <SetRow title="Not signed in" desc="Nothing of yours is in WakeUp’s database from this device." />}
         {msg ? <Txt kind="small" style={{ color: msg.ok ? c.good : c.bad, paddingHorizontal: S(4), paddingBottom: S(4) }}>{msg.text}</Txt> : null}
       </Card>
-      <View style={{ gap: S(2) }}>
-        <Txt kind="headline">Privacy policy</Txt>
-        <Txt kind="small" muted>{`Last updated ${Legal.UPDATED}.`}</Txt>
-        {Legal.PRIVACY.map((x, i) => (
-          <View key={i} style={{ gap: S(2), marginTop: x.h ? S(3) : 0 }}>
-            {x.h ? <Txt style={{ fontWeight: '600' }}>{x.h}</Txt> : null}
-            {(x.p ?? []).map((t, j) => <Txt key={j}>{t}</Txt>)}
-            {(x.list ?? []).map(([l, t], j) => (
-              <View key={j} style={{ flexDirection: 'row', gap: S(2), paddingLeft: S(1) }}>
-                <Txt muted>•</Txt>
-                <Txt style={{ flex: 1 }}>{l ? <Txt style={{ fontWeight: '600' }}>{`${l}: `}</Txt> : null}{t}</Txt>
-              </View>
-            ))}
-          </View>
-        ))}
-      </View>
       <Card>
+        <SetRow title="Privacy policy" desc={`What WakeUp keeps, where, and why. Updated ${Legal.UPDATED}.`} stack={!wide}><Button small label="Read it" onPress={() => open(`${Legal.REPO}/blob/main/PRIVACY.md`)} /></SetRow>
+        <Divider />
         <SetRow title={Legal.COPYRIGHT} desc={Legal.DISCLAIMER} />
         <Divider />
         <SetRow title="Licence" desc="You may use the official builds for yourself. The code may not be copied or redistributed." stack={!wide}><Button small label="Read the licence" onPress={() => open(Legal.LICENSE)} /></SetRow>
