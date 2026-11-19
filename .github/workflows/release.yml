@@ -8,6 +8,7 @@
 #   WakeUp-<v>.AppImage          a single-file desktop app
 #   WakeUp-<v>.apk               the Android app
 #   SHA256SUMS                   checksums; the apps refuse any file that doesn't match
+#   SHA256SUMS.sig               Ed25519 signature of SHA256SUMS; the desktop app refuses updates without it
 # Release notes are the commit subjects since the previous release. Run it by hand from the Actions tab to get the
 # files as build artifacts without publishing.
 #
@@ -138,9 +139,16 @@ jobs:
         with:
           path: out
           merge-multiple: true
-      - name: Checksums and notes
+      - name: Checksums, signature and notes
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          # sign the checksums; the desktop app refuses updates without this (src/shared/update-core.js)
+          umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/update.pem" -rawin -in out/SHA256SUMS -out out/SHA256SUMS.sig
+          rm -f "$RUNNER_TEMP/update.pem"
+          test "$(stat -c %s out/SHA256SUMS.sig)" = 64
           LAST=$(git describe --tags --abbrev=0 2>/dev/null || true)
           { echo "What's new in WakeUp ${{ needs.version.outputs.version }}:"; echo;
             git log --no-merges --pretty='- %s' ${LAST:+$LAST..}HEAD | head -30; } > notes.md

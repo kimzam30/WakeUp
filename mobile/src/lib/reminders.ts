@@ -21,11 +21,13 @@ Notifications.setNotificationHandler({
 });
 
 // Channels exist from the first launch, so reminders work even when permission is granted from system settings
+/* eslint-disable import/namespace -- AndroidImportance reaches Notifications through expo-notifications' `export *`, which this rule can't follow */
 async function channels() {
   await Notifications.setNotificationChannelAsync('classes', { name: 'Class reminders', description: 'A heads-up before each class', importance: Notifications.AndroidImportance.HIGH });
   await Notifications.setNotificationChannelAsync('tasks', { name: 'Tasks due', description: 'Tasks due today, once a day', importance: Notifications.AndroidImportance.DEFAULT });
   await Notifications.setNotificationChannelAsync('focus', { name: 'Focus timer', description: 'When a focus session or a break ends', importance: Notifications.AndroidImportance.HIGH });
 }
+/* eslint-enable import/namespace */
 export const notificationsReady = () => ready;
 const ready = channels().catch(() => {});
 

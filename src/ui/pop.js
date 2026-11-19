@@ -15,7 +15,8 @@ if (id === 'tasks' || id === 'timetable') {
       const lm = p.settings.classLabel || 'code'; applyAccent(p.settings.accent);
       if (p.settings.weekStart !== WEEK_START || lm !== LABEL_MODE) { WEEK_START = p.settings.weekStart; LABEL_MODE = lm; view.render(); }
     });
-    setInterval(() => view.tick?.(), 30e3);
+    setInterval(() => { if (!document.hidden) view.tick?.(); }, 30e3);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) view.tick?.(); }); // catch up when shown
   });
   $('#popbar').remove();
 } else {

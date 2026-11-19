@@ -26,7 +26,7 @@ const Focus = (() => {
     timer = setInterval(() => {
       const r = FocusCore.tick(s, Date.now());
       if (r.ended) { s = r.state; save(); tell(r.ended); }
-      draw();
+      if (!document.hidden || r.ended) draw(); // nobody's looking: keep time, skip the redraw
     }, 1000);
   }
 

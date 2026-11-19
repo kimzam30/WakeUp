@@ -7,6 +7,8 @@ import { haptic } from '../lib/haptics';
 import { focus, useFocus } from '../lib/focus';
 import { Focus } from '../lib/shared';
 import { useStore } from '../lib/store';
+import { useActive } from '../lib/hooks';
+import { useIsFocused } from 'expo-router';
 import { Button, Card, IconButton, Txt } from './kit';
 import { R, S, useTheme } from './theme';
 
@@ -17,11 +19,16 @@ export function FocusCard() {
   const [now, setNow] = useState(() => Date.now());
   const act = (fn: () => void) => { fn(); setNow(Date.now()); };
   const running = s.phase !== 'idle' && !Focus.paused(s);
+  // ticks only while you can see it (the end alert is a scheduled notification, so nothing depends on this)
+  const focusedScreen = useIsFocused(); const appActive = useActive();
+  const shown = focusedScreen && appActive;
   useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => { if (focus.tick()) haptic('success'); setNow(Date.now()); }, 1000);
-    return () => clearInterval(t);
-  }, [running]);
+    if (!running || !shown) return;
+    const step = () => { if (focus.tick()) haptic('success'); setNow(Date.now()); };
+    const first = setTimeout(step, 0); // catch up straight away when it comes back on screen
+    const t = setInterval(step, 1000);
+    return () => { clearTimeout(first); clearInterval(t); };
+  }, [running, shown]);
   const total = s.phase === 'idle' ? 1 : Focus.LENGTHS[s.phase] * 60e3;
   const left = Math.min(total, Focus.remaining(s, now));
   const done = s.phase === 'idle' ? 0 : Math.max(0, Math.min(1, 1 - left / total));

@@ -2,7 +2,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const listen = (ch) => (fn) => ipcRenderer.on(ch, (_e, v) => fn(v));
-contextBridge.exposeInMainWorld('hub', {
+// only WakeUp's own pages get the bridge, never a website that somehow ended up in one of its windows
+if (location.protocol === 'file:' && /\/ui\/(index|pop|link)\.html$/.test(location.pathname)) contextBridge.exposeInMainWorld('hub', {
   init: () => ipcRenderer.invoke('init'),
   onStatus: listen('status'),
   onUnread: listen('unread'),

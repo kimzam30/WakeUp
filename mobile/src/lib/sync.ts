@@ -6,7 +6,7 @@ import { createClient, type RealtimeChannel, type User } from '@supabase/supabas
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import NetInfo from '@react-native-community/netinfo';
-import Storage from 'expo-sqlite/kv-store';
+import { secureSession } from './secure-session';
 import * as Crypto from 'expo-crypto';
 import { Cloud, Schema, SyncCore as S } from './shared';
 import { getState, kv, onLocalChange, setPlanner, setSettings, setSyncStatus, type SyncStatus } from './store';
@@ -17,7 +17,7 @@ const REDIRECT = 'wakeup://auth-callback';
 
 const sb = createClient(Cloud.url, Cloud.key, {
   auth: {
-    storage: { getItem: (k) => Storage.getItem(k), setItem: (k, v) => Storage.setItem(k, v), removeItem: (k) => Storage.removeItem(k).then(() => {}) },
+    storage: secureSession, // the Keystore-encrypted store (src/lib/secure-session.ts)
     flowType: 'pkce', autoRefreshToken: true, persistSession: true, detectSessionInUrl: false,
   },
 });
@@ -34,11 +34,11 @@ let lastSync = kv.get<string | null>('sync.lastSync', null);
 let owner = kv.get<string | null>('sync.owner', null); // the account the data on this device belongs to
 let needsFirst = kv.get<boolean>('sync.needsFirst', false); // first sync hasn't finished yet: retried until it does
 let offlineDeletes = kv.get<string[]>('sync.offlineDeletes', []); // deleted while signed out
-let rejected = kv.get<number>('sync.rejected', 0);
+let refused = kv.get<string[]>('sync.refused', []); // "kind:id" of rows the server refused (they stay here)
 const save = () => {
   kv.set('sync.outbox', outbox); kv.set('sync.lastPull', lastPull); kv.set('sync.settingsAt', settingsAt); kv.set('sync.dirtyKeys', dirtyKeys);
   kv.set('sync.lastSync', lastSync); kv.set('sync.owner', owner); kv.set('sync.needsFirst', needsFirst); kv.set('sync.offlineDeletes', offlineDeletes);
-  kv.set('sync.rejected', rejected);
+  kv.set('sync.refused', refused);
 };
 
 let expired = false;
@@ -49,8 +49,11 @@ let active = AppState.currentState === 'active';
 const report = (phase: SyncStatus['phase'], error: string | null = null) => setSyncStatus({
   signedIn: !!user, email: user?.email ?? '', name: (user?.user_metadata?.full_name || user?.user_metadata?.name || '') as string,
   avatar: (/^https:\/\//.test(String(user?.user_metadata?.avatar_url ?? user?.user_metadata?.picture ?? '')) ? String(user?.user_metadata?.avatar_url ?? user?.user_metadata?.picture) : ''),
-  phase, error, lastSync, pending: outbox.length + (dirtyKeys.length ? 1 : 0), rejected,
+  phase, error, lastSync, pending: outbox.length + (dirtyKeys.length ? 1 : 0),
+  ...refusedStatus(),
 });
+// refused rows that still exist here, by name (before 2.10 only a count was kept, with nothing to retry)
+function refusedStatus() { const names = S.refusedNames(getState().planner, refused); return { rejected: names.length, refused: names.slice(0, 5) }; }
 type Kind = 'offline' | 'auth' | 'bad' | 'other';
 function kindOf(e: unknown): Kind {
   const x = e as { message?: string; code?: string; status?: number };
@@ -120,14 +123,45 @@ async function doSignIn(): Promise<boolean> {
   } catch (e) { if (myGen === gen) report(user ? 'error' : 'off', String((e as Error)?.message ?? e).slice(0, 160)); return false; }
 }
 
-export async function signOut() {
+// everywhere: the server ends every device's sign-in (the others ask to sign in again within the hour, when
+// their access runs out). It needs the network, so it throws rather than pretending; a local sign-out always works.
+export async function signOut({ everywhere = false }: { everywhere?: boolean } = {}) {
+  if (everywhere) {
+    const { error } = await sb.auth.signOut({ scope: 'global' });
+    if (error) throw new Error(friendlyNet(error, 'Couldn’t sign out your other devices'));
+  }
   gen++;
   await stopRealtime();
   if (timer) clearTimeout(timer); retryIn = 5;
-  await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+  if (!everywhere) await sb.auth.signOut({ scope: 'local' }).catch(() => {});
   // the local timetable stays, still owned by this account (signing in as someone else asks first)
-  user = null; expired = false; outbox = []; lastPull = null; settingsAt = null; dirtyKeys = []; lastSync = null; needsFirst = false; offlineDeletes = []; rejected = 0; save();
+  user = null; expired = false; outbox = []; lastPull = null; settingsAt = null; dirtyKeys = []; lastSync = null; needsFirst = false; offlineDeletes = []; refused = []; save();
   report('off');
+}
+
+const friendlyNet = (e: unknown, what: string) => (kindOf(e) === 'offline' ? `${what}: you’re offline.` : `${what}: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+
+// "Try again" for rows the server refused: queue their current local copy again
+export function retryRefused() {
+  const rows = S.refusedRows(getState().planner, refused);
+  refused = [];
+  if (rows.length) outbox = S.queue(outbox, { upserts: rows, deletes: [] });
+  save(); return flush();
+}
+
+// ---- Delete my cloud data: every row of yours on the server goes, then every device is signed out, so none
+// uploads half a copy. Each device keeps its own copy; signing in again uploads that device's copy in full.
+export async function deleteCloudData() {
+  if (!user || expired) throw new Error('Sign in first, so WakeUp can reach your cloud data.');
+  const myGen = ++gen; // stops a flush or first sync that's under way from uploading after the delete
+  await stopRealtime(); if (timer) clearTimeout(timer);
+  await (flushing ?? Promise.resolve()).catch(() => {}); await (firstRun ?? Promise.resolve()).catch(() => {});
+  for (const table of ['wakeup_planner_items', 'wakeup_settings']) {
+    const { error } = await sb.from(table).delete().eq('user_id', user.id);
+    if (error) { if (myGen === gen) catchUp(); throw new Error(friendlyNet(error, 'Couldn’t delete your cloud data')); }
+  }
+  // the data is gone either way; if the network drops now, at least this device stops syncing
+  try { await signOut({ everywhere: true }); } catch { await signOut(); }
 }
 
 // ---- first sync on this device: merge, nothing lost. Returns false (and stays pending) if it didn't finish.
@@ -231,9 +265,10 @@ export async function flush(): Promise<void> {
           for (const r of batch) {
             const { error: e1 } = await upsertRows([r]);
             if (e1 && kindOf(e1) !== 'bad') throw e1;
-            if (e1) { rejected += 1; console.warn('sync refused', r.kind, r.id, e1.message); }
+            if (e1) { refused = S.noteRefused(refused, r); console.warn('sync refused', r.kind, r.id, e1.message); } else refused = S.clearRefused(refused, [r]);
           }
         } else if (error) throw error;
+        else if (refused.length) refused = S.clearRefused(refused, batch);
         if (myGen !== gen) return;
         const sent = new Set(batch); outbox = outbox.filter((r) => !sent.has(r)); save();
       }

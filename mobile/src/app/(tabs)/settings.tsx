@@ -1,7 +1,7 @@
 // Settings: account and sync, notifications, timetable, apps, appearance. Same words as the desktop app.
 // Phones get one grouped list; landscape tablets get sections on the left and details on the right.
 import { useEffect, useState } from 'react';
-import { Alert, AppState, Pressable, View } from 'react-native';
+import { Alert, AppState, Linking, Pressable, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import { Button, Card, Divider, Field, Page, Row, Section, Segmented, Sheet, Switch, Txt, useLayout } from '../../ui/kit';
@@ -10,11 +10,11 @@ import { R, S, useTheme } from '../../ui/theme';
 import { TimeField } from '../../ui/DateField';
 import { BUILTIN_APPS, closeApp, setOnboarded, setSettings, useStore } from '../../lib/store';
 import { cancelUpdate, checkForUpdate, installUpdate, setAutoUpdate, useUpdate } from '../../lib/updater';
-import { flush, signIn, signOut } from '../../lib/sync';
+import { deleteCloudData, flush, retryRefused, signIn, signOut } from '../../lib/sync';
 import { askPermission, openSystemSettings, permission, rescheduleSoon, type Permission } from '../../lib/reminders';
 import { fmtTime } from '../../lib/format';
 import type { WebApp } from '../../lib/types';
-import { Look } from '../../lib/shared';
+import { Legal, Look } from '../../lib/shared';
 import { Avatar } from '../../ui/Avatar';
 
 const AI: [string, string, string][] = [
@@ -24,8 +24,8 @@ const AI: [string, string, string][] = [
 ];
 const ago = (iso: string | null) => { if (!iso) return 'not yet'; const m = Math.round((Date.now() - Date.parse(iso)) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
 
-type SecId = 'sync' | 'notify' | 'timetable' | 'apps' | 'you' | 'about';
-const SECTIONS: [SecId, string, string][] = [['sync', 'Account and sync', 'cloud'], ['notify', 'Notifications', 'bell'], ['timetable', 'Timetable', 'cal'], ['apps', 'Apps', 'apps'], ['you', 'Appearance and you', 'palette'], ['about', 'About', 'info']];
+type SecId = 'sync' | 'notify' | 'timetable' | 'apps' | 'you' | 'privacy' | 'about';
+const SECTIONS: [SecId, string, string][] = [['sync', 'Account and sync', 'cloud'], ['notify', 'Notifications', 'bell'], ['timetable', 'Timetable', 'cal'], ['apps', 'Apps', 'apps'], ['you', 'Appearance and you', 'palette'], ['privacy', 'Privacy & Legal', 'scale'], ['about', 'About', 'info']];
 
 export default function Settings() {
   const { c } = useTheme();
@@ -75,6 +75,7 @@ function SectionBody({ id }: { id: SecId }) {
   if (id === 'timetable') return <TimetableCard />;
   if (id === 'apps') return <AppsCard />;
   if (id === 'you') return <YouCard />;
+  if (id === 'privacy') return <PrivacyCard />;
   return <AboutCard />;
 }
 
@@ -93,7 +94,8 @@ function SyncCard() {
     <Card>
       {sync.signedIn ? <>
         <Row><Avatar sync={sync} size={40} /><View style={{ flex: 1 }}><Txt kind="headline">{sync.name || sync.email}</Txt><Txt kind="small" muted style={bad ? { color: c.bad } : undefined}>{sync.name ? `${sync.email} · ` : ''}{syncText}</Txt>
-          {sync.rejected ? <Txt kind="small" style={{ color: c.bad, marginTop: 4 }}>{`${n(sync.rejected, 'item')} couldn’t sync and stay on this device only.`}</Txt> : null}</View></Row>
+          {sync.rejected ? <Txt kind="small" style={{ color: c.bad, marginTop: 4 }}>{`${n(sync.rejected, 'item')} couldn’t sync and stay on this device only${sync.refused?.length ? `: ${sync.refused.join(', ')}${sync.rejected > sync.refused.length ? '…' : ''}` : ''}.`}</Txt> : null}
+          {sync.rejected ? <View style={{ alignItems: 'flex-start', marginTop: S(1) }}><Button small kind="plain" label="Try again" onPress={() => { retryRefused(); }} /></View> : null}</View></Row>
         <Divider />
         <View style={{ flexDirection: 'row', gap: S(2), padding: S(3), flexWrap: 'wrap' }}>
           {sync.phase === 'expired' ? <Button small kind="primary" label="Sign in again" onPress={() => signIn()} />
@@ -204,20 +206,21 @@ function AppsCard() {
 function YouCard() {
   const { wide } = useLayout();
   const s = useStore((x) => x.settings);
-  // the field follows the saved nickname (it can change on another device) unless you're typing in it
-  const [nick, setNick] = useState(s.nickname);
-  const [typing, setTyping] = useState(false);
-  useEffect(() => { if (!typing) setNick(s.nickname); }, [s.nickname, typing]);
+  // the field shows the saved nickname (it can change on another device) unless you're typing in it
+  const [draft, setDraft] = useState<string | null>(null);
+  const nick = draft ?? s.nickname;
   useEffect(() => {
-    if (!typing) return;
-    const t = setTimeout(() => { const v = nick.trim().slice(0, 30); if (v !== s.nickname) setSettings({ nickname: v }); }, 600);
+    if (draft == null) return;
+    const t = setTimeout(() => { const v = draft.trim().slice(0, 30); if (v !== s.nickname) setSettings({ nickname: v }); }, 600);
     return () => clearTimeout(t);
-  }, [nick, typing, s.nickname]);
+  }, [draft, s.nickname]);
+  // leaving the field saves what's there at once
+  const done = () => { if (draft != null) { const v = draft.trim().slice(0, 30); if (v !== s.nickname) setSettings({ nickname: v }); setDraft(null); } };
   return (
     <View style={{ gap: S(4) }}>
     <Card>
       <View style={{ padding: S(4), gap: S(2) }}>
-        <Field label="Your nickname" value={nick} onChangeText={(v) => { setTyping(true); setNick(v); }} onBlur={() => setTyping(false)} placeholder="e.g. Kim" maxLength={30} returnKeyType="done" />
+        <Field label="Your nickname" value={nick} onChangeText={setDraft} onBlur={done} placeholder="e.g. Kim" maxLength={30} returnKeyType="done" />
         <Txt kind="small" muted>WakeUp greets you with it on Today.</Txt>
       </View>
       <Divider />
@@ -295,6 +298,69 @@ function MoveBtn({ dir, name, disabled, onPress, color }: { dir: 1 | -1; name: s
   );
 }
 
+
+// Privacy & Legal: your cloud data, the privacy policy (src/ui/legal.js, the same text as PRIVACY.md) and the legal notes
+function PrivacyCard() {
+  const { c } = useTheme();
+  const { wide } = useLayout();
+  const sync = useStore((x) => x.sync);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const on = sync.signedIn && sync.phase !== 'expired' && !busy;
+  const run = (all: boolean) => {
+    setBusy(true); setMsg(null);
+    (all ? signOut({ everywhere: true }) : deleteCloudData())
+      .then(() => setMsg({ ok: true, text: all ? 'Signed out on every device.' : 'Your cloud data is deleted and every device is signed out.' }))
+      .catch((e: Error) => setMsg({ ok: false, text: e.message }))
+      .finally(() => setBusy(false));
+  };
+  const everywhere = () => Alert.alert('Sign out everywhere?', 'Your WakeUp sign-in ends on every computer, phone and tablet, this one included. Each keeps its own timetable and tasks.',
+    [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out everywhere', onPress: () => run(true) }]);
+  const wipe = () => Alert.alert('Delete your cloud data?', 'Your timetable, tasks and settings are removed from WakeUp’s database. This can’t be undone. Every device is signed out; each keeps its own copy, and signing in again uploads that device’s copy.',
+    [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => run(false) }]);
+  const open = (u: string) => { Linking.openURL(u).catch(() => {}); };
+  return (
+    <View style={{ gap: S(6) }}>
+      <Card>
+        {sync.signedIn ? <>
+          <SetRow title="Sign out everywhere" desc="Ends your WakeUp sign-in on every device, this one included. Others notice within an hour." stack={!wide}>
+            <Button small label="Sign out everywhere" onPress={everywhere} disabled={!on} />
+          </SetRow>
+          <Divider />
+          <SetRow title="Delete my cloud data" desc="Removes everything WakeUp stored for you in its database and signs out every device. Nothing on this device is deleted." stack={!wide}>
+            <Button small kind="danger" label={busy ? 'Working…' : 'Delete my cloud data'} onPress={wipe} disabled={!on} />
+          </SetRow>
+        </> : <SetRow title="Not signed in" desc="Nothing of yours is in WakeUp’s database from this device." />}
+        {msg ? <Txt kind="small" style={{ color: msg.ok ? c.good : c.bad, paddingHorizontal: S(4), paddingBottom: S(4) }}>{msg.text}</Txt> : null}
+      </Card>
+      <View style={{ gap: S(2) }}>
+        <Txt kind="headline">Privacy policy</Txt>
+        <Txt kind="small" muted>{`Last updated ${Legal.UPDATED}.`}</Txt>
+        {Legal.PRIVACY.map((x, i) => (
+          <View key={i} style={{ gap: S(2), marginTop: x.h ? S(3) : 0 }}>
+            {x.h ? <Txt style={{ fontWeight: '600' }}>{x.h}</Txt> : null}
+            {(x.p ?? []).map((t, j) => <Txt key={j}>{t}</Txt>)}
+            {(x.list ?? []).map(([l, t], j) => (
+              <View key={j} style={{ flexDirection: 'row', gap: S(2), paddingLeft: S(1) }}>
+                <Txt muted>•</Txt>
+                <Txt style={{ flex: 1 }}>{l ? <Txt style={{ fontWeight: '600' }}>{`${l}: `}</Txt> : null}{t}</Txt>
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+      <Card>
+        <SetRow title={Legal.COPYRIGHT} desc={Legal.DISCLAIMER} />
+        <Divider />
+        <SetRow title="Licence" desc="You may use the official builds for yourself. The code may not be copied or redistributed." stack={!wide}><Button small label="Read the licence" onPress={() => open(Legal.LICENSE)} /></SetRow>
+        <Divider />
+        <SetRow title="Open-source software" desc="WakeUp is built with open-source software. Each piece keeps its own licence." stack={!wide}><Button small label="View notices" onPress={() => open(Legal.NOTICES)} /></SetRow>
+        <Divider />
+        <SetRow title="Questions or requests" desc="Ask on GitHub, for example to delete your sign-in account." stack={!wide}><Button small label="Open GitHub" onPress={() => open(Legal.CONTACT)} /></SetRow>
+      </Card>
+    </View>
+  );
+}
 
 function AboutCard() {
   const { wide } = useLayout();

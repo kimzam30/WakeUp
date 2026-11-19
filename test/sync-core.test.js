@@ -104,3 +104,15 @@ test('applying the uploaded body keeps the value just sent', () => {
   const body = { nickname: 'B', theme: 'dark' }; // theme came from the cloud, nickname from this device
   assert.deepEqual(S.remoteSettingsPatch(local, body, []), { theme: 'dark' });
 });
+
+test('refused rows are named, retried from the local copy, and cleared once they upload', () => {
+  const p = { semester: { name: '', start: null, end: null, breaks: [] }, classes: [{ id: 'c1', name: 'Physics' }], changes: [], tasks: [{ id: 't1', title: 'Essay' }] };
+  let refused = S.noteRefused([], { kind: 'class', id: 'c1' });
+  refused = S.noteRefused(refused, { kind: 'task', id: 't1' });
+  refused = S.noteRefused(refused, { kind: 'task', id: 't1' }); // once only
+  refused = S.noteRefused(refused, { kind: 'task', id: 'gone' }); // deleted here since
+  assert.deepEqual(S.refusedNames(p, refused), ['Physics', 'Essay']);
+  assert.deepEqual(S.refusedRows(p, refused).map((r) => [r.kind, r.id, r.deleted]), [['class', 'c1', false], ['task', 't1', false]]);
+  assert.deepEqual(S.clearRefused(refused, [{ kind: 'class', id: 'c1' }]), ['task:t1', 'task:gone']);
+  assert.equal(Array.from({ length: 80 }, (_, i) => i).reduce((r, i) => S.noteRefused(r, { kind: 'task', id: `x${i}` }), []).length, 50);
+});

@@ -97,7 +97,7 @@ Your sign-ins, timetable and tasks are kept.
 
 ### Updating
 
-WakeUp checks GitHub for a new version when it starts and every few hours. When one is out, a notice appears at the bottom of the sidebar: click **Update now**, then **Restart now**. Settings → About → Updates has the same buttons and an **auto-check** switch. Every download is checked against the release's checksums before anything is replaced, and the old version is kept aside until the next start, so a failed update changes nothing.
+WakeUp checks GitHub for a new version when it starts and every few hours. When one is out, a notice appears at the bottom of the sidebar: click **Update now**, then **Restart now**. Settings → About → Updates has the same buttons and an **auto-check** switch. Every download is checked against the release's checksums, which must carry WakeUp's release signature, before anything is replaced, and the old version is kept aside until the next start, so a failed update changes nothing.
 
 One-click updates work for WakeUp installed with `scripts/install.sh` or run as an AppImage. When running from source, pull the latest code and run `npm run dist && bash scripts/install.sh` again.
 
@@ -191,8 +191,9 @@ Open with `Ctrl+,`, the sliders icon in the sidebar, or **Settings…** in the t
 ## Privacy and your data
 
 - **No telemetry.** WakeUp doesn't track you or report usage anywhere.
-- **Sync is optional.** If you sign in with Google, your timetable (classes, one-off changes and the semester), your tasks and a few settings (theme, week start, nickname, reminders, class label style, task reminder time and your custom apps) are stored in a Supabase database, where row-level security keeps them readable by your account only. Window layouts, folders and sign-ins to your apps never leave the device. Signing out keeps the local copy.
-- On the desktop the sync sign-in is stored in `~/.config/WakeUp/auth.bin`, encrypted with your system keyring when one is available (Settings warns you if it isn't).
+- **The full policy** is in [PRIVACY.md](PRIVACY.md) and in the apps under Settings → Privacy & Legal (both come from `src/ui/legal.js`; run `node scripts/legal.js` after editing it).
+- **Sync is optional.** If you sign in with Google, your timetable (classes, one-off changes and the semester), your tasks and a few settings (theme, accent, Today layout, week start, nickname, reminders, class label style, task reminder time and your custom apps) are stored in a Supabase database, where row-level security keeps them readable by your account only. Window layouts, folders and sign-ins to your apps never leave the device. Signing out keeps the local copy. **Sign out everywhere** and **Delete my cloud data** are in Settings → Privacy & Legal.
+- On the desktop the sync sign-in is stored in `~/.config/WakeUp/auth.bin`, encrypted with your system keyring when one is available (Settings warns you if it isn't). On Android it's in the Keystore-backed SecureStore.
 - Settings, layout, timetable and tasks are in `~/.config/WakeUp/state.json`, with a backup copy at `state.json.bak`.
 - Sign-ins are kept by Electron in separate session partitions:
   - Microsoft 365 apps share one;
@@ -243,7 +244,7 @@ src/
   shared/            code used by both apps: planner schema, sync logic, cloud config
 mobile/              the Android app (Expo / React Native, Expo Router); see mobile/AGENTS.md
 supabase/            database migrations and setup notes for sync
-test/                unit tests for the shared sync logic (npm test)
+test/                unit tests (npm test); test/e2e: the desktop app end to end (npm run e2e)
 scripts/
   install.sh         build and install for the current user
   make-icons.py      renders the app icons
@@ -257,7 +258,9 @@ npm start                                   # run from source
 WAKEUP_PROFILE=/tmp/wakeup-test npm start   # run with a throwaway profile (your real sign-ins stay untouched)
 npm run dist                                # unpacked build in dist/linux-unpacked
 npm run dist:appimage                       # optional single-file AppImage
-npm test                                    # shared sync logic tests
+npm test                                    # unit tests: sync, updater, legal text (seconds)
+npm run e2e                                 # the real app end to end on throwaway profiles: every settings section
+                                            # and switch, timetable, tasks, layouts, tabs, restarts, safety (~3 min)
 ```
 
 The Android app lives in `mobile/`:
@@ -266,6 +269,7 @@ The Android app lives in `mobile/`:
 cd mobile && npm ci
 npx expo run:android                        # development build on a connected device
 npx tsc --noEmit && npx expo lint           # typecheck and lint
+node ../scripts/android-e2e.js <serial>     # read-only walk through every screen on a connected device
 ```
 
 `mobile/android` is generated (`expo prebuild`) and not committed; native settings belong in `mobile/app.json`.
@@ -278,7 +282,7 @@ Both apps share one version, kept in `package.json`:
 node scripts/bump-version.js 2.6.0   # sets it for the desktop and Android apps (Android versionCode 20600)
 ```
 
-Commit and push to `main`, or merge `dev` into `main`. The **Release** workflow builds the desktop tarball, the AppImage and the APK, writes `SHA256SUMS`, and publishes a GitHub Release named after the version, with the commit subjects since the last release as notes. A push whose version already has a release builds nothing. Installed apps see the new version within a few hours.
+Commit and push to `main`, or merge `dev` into `main`. The **Release** workflow builds the desktop tarball, the AppImage and the APK, writes `SHA256SUMS`, signs it as `SHA256SUMS.sig`, and publishes a GitHub Release named after the version, with the commit subjects since the last release as notes. A push whose version already has a release builds nothing. Installed apps see the new version within a few hours.
 
 Android only installs an update signed with the same key as the app already on the device, so every release is signed with WakeUp's own key (`mobile/plugins/release-signing.js`). GitHub gets it from repository secrets (listed at the top of `.github/workflows/release.yml`), and a release without it fails rather than shipping an APK that can't update anyone. For a local build that installs over a release:
 
@@ -286,7 +290,11 @@ Android only installs an update signed with the same key as the app already on t
 . ~/.config/wakeup-signing/env && cd mobile/android && ./gradlew assembleRelease
 ```
 
-Keep a backup of `~/.config/wakeup-signing` somewhere safe: if the key is lost, installed copies can't be updated and have to be reinstalled.
+Desktop updates must be signed too: the release job signs `SHA256SUMS` with an Ed25519 key from the `UPDATE_SIGNING_KEY` secret (its private half is `~/.config/wakeup-signing/update-ed25519.pem`; the public half is `SIGNING_KEY` in `src/shared/update-core.js`). The desktop app refuses an update whose signature is missing or wrong.
+
+Keep a backup of `~/.config/wakeup-signing` somewhere safe: if a key is lost, installed copies can't be updated and have to be reinstalled.
+
+After changing dependencies, run `node scripts/third-party.js` to refresh `THIRD_PARTY_NOTICES.md`.
 
 Logs are written to `~/.config/WakeUp/logs/main.log` (Settings → About → Open log folder). Everything coming from disk or the UI is validated in `main.js` (`cleanSettings`, `cleanLayout`, `cleanPlanner`, `cleanFiles`), so a damaged file resets the bad values instead of crashing the app.
 
@@ -303,13 +311,13 @@ Logs are written to `~/.config/WakeUp/logs/main.log` (Settings → About → Ope
 
 ## Roadmap
 
-Next up (2.5):
+Done in 2.5 to 2.10:
 
 - A tablet layout that matches the desktop, with smoother motion and swipe gestures.
 - Replacement and move autofill, tasks linked to classes, and a Pomodoro timer.
 - Accent colours, a customizable Today page, app logos and your Google profile picture.
 - Open the same app in a second tab, and NotebookLM.
-- Licence, privacy page and security hardening.
+- A licence, a privacy policy, signed desktop updates, and Sign out everywhere / Delete my cloud data.
 
 Later: Do Not Disturb during classes, per-app zoom, and attaching files to tasks.
 
@@ -317,6 +325,6 @@ Later: Do Not Disturb during classes, per-app zoom, and attaching files to tasks
 
 Built with [Electron](https://www.electronjs.org/), [Expo](https://expo.dev/) and [Supabase](https://supabase.com/). The interface uses [Inter](https://rsms.me/inter/), bundled in `src/ui/fonts` under the SIL Open Font Licence (`src/ui/fonts/OFL.txt`).
 
-© 2026 kimzam. All rights reserved. The source is public to read, but it isn't licensed for reuse or redistribution.
+© 2026 nhako. All rights reserved ([LICENSE](LICENSE)). The source is public to read, but it isn't licensed for reuse or redistribution. Open-source components and their licences are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 WakeUp is an independent student project and isn't affiliated with or endorsed by Multimedia University, Microsoft, Google, Anthropic, OpenAI or any other service it opens.

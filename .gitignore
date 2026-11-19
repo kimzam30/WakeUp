@@ -1,2 +1,15 @@
 node_modules/
 dist/
+
+# never commit secrets or personal app data (signing keys live in ~/.config/wakeup-signing)
+.env
+.env.*
+*.pem
+*.key
+*.jks
+*.keystore
+*.p12
+*.p8
+auth.bin
+state.json
+state.json.bak

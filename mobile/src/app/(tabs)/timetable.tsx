@@ -2,7 +2,7 @@
 // grid sideways to change the week when the days fit on screen.
 // Tap a class for its details and one-off changes (cancel this date, online today): a sheet on phones, a panel
 // beside the week on a landscape tablet. Edit or add classes in a modal. The Flip cover screen shows the list only.
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, Card, Chip, Divider, Empty, Field, IconButton, Page, Pick, Row, Segmented, Sheet, Txt, useLayout } from '../../ui/kit';
@@ -32,8 +32,12 @@ export default function Timetable() {
   const [pick, setPick] = useState<'list' | 'week' | null>(null);
   const view = cover ? 'list' : pick ?? (wide ? 'week' : 'list');
   const today = useToday();
-  const [first, setFirst] = useState(() => Planner.startOfWeek(today, weekStart));
-  useEffect(() => { setFirst(Planner.startOfWeek(today, weekStart)); }, [weekStart, today]);
+  // the week shown: this week again whenever the day or the week start changes, else wherever you moved it
+  const thisWeek = Planner.startOfWeek(today, weekStart);
+  const [nav, setNav] = useState({ base: thisWeek, first: thisWeek });
+  if (nav.base !== thisWeek) setNav({ base: thisWeek, first: thisWeek }); // React's "adjust state when a prop changes"
+  const first = nav.base === thisWeek ? nav.first : thisWeek;
+  const setFirst = (f: string | ((prev: string) => string)) => setNav((n) => ({ ...n, first: typeof f === 'function' ? f(n.first) : f }));
   const [picked, setSel] = useState<Occurrence | null>(null);
   // the picked class meeting, read again from the timetable so edits (kind, notes) show at once
   const sel = useMemo(() => (picked ? Planner.occurrencesOn(picked.date, planner).find((x) => x.key === picked.key) ?? picked : null), [picked, planner]);

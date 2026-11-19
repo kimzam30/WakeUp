@@ -8,7 +8,7 @@ import type { Planner, Settings, WebApp } from './types';
 
 export type SyncStatus = {
   signedIn: boolean; email: string; name: string; avatar?: string; phase: 'off' | 'signing' | 'syncing' | 'idle' | 'offline' | 'error' | 'expired';
-  error: string | null; lastSync: string | null; pending: number; rejected: number;
+  error: string | null; lastSync: string | null; pending: number; rejected: number; refused?: string[];
 };
 
 export const BUILTIN_APPS: WebApp[] = [

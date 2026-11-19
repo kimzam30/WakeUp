@@ -31,14 +31,14 @@ export default function Today() {
   const settings = useStore((s) => s.settings);
   const mode = settings.classLabel;
   const today = Planner.ymd(now);
-  const week = useMemo(() => Planner.weekOf(today, planner.semester, settings.weekStart), [today, planner.semester, settings.weekStart]);
+  const week = Planner.weekOf(today, planner.semester, settings.weekStart);
   // the next class only changes when the minute does or the timetable does
   const next = useMemo(() => Planner.upcoming(planner, new Date(nowMs), 7)[0], [planner, nowMs]);
   const isNow = !!next && next.startsAt <= nowMs;
   const classTasks = next ? planner.tasks.filter((t) => t.classId === next.classId && !t.done).length : 0;
-  const todays = useMemo(() => Planner.occurrencesOn(today, planner), [today, planner]);
-  const due = useMemo(() => planner.tasks.filter((t) => !t.done && t.due && t.due <= today).sort((a, b) => (a.due! < b.due! ? -1 : 1)), [planner.tasks, today]);
-  const soon = useMemo(() => planner.tasks.filter((t) => !t.done && t.due && t.due > today && t.due <= Planner.addDays(today, 7)).sort((a, b) => (a.due! < b.due! ? -1 : 1)), [planner.tasks, today]);
+  const todays = Planner.occurrencesOn(today, planner);
+  const due = planner.tasks.filter((t) => !t.done && t.due && t.due <= today).sort((a, b) => (a.due! < b.due! ? -1 : 1));
+  const soon = planner.tasks.filter((t) => !t.done && t.due && t.due > today && t.due <= Planner.addDays(today, 7)).sort((a, b) => (a.due! < b.due! ? -1 : 1));
   const cover = size === 'cover';
   const weekText = week?.week ? `Week ${week.week}${week.break ? ` · ${week.break}` : ''}` : week?.before ? `Semester starts in ${week.days} days` : week?.after ? 'Semester finished' : '';
 

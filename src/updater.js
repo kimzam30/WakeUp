@@ -5,7 +5,7 @@
 //   ~/.local/lib/wakeup (scripts/install.sh)  the tarball is unpacked next to it, then swapped in with two renames
 //   an AppImage                               the new AppImage replaces the file you started
 //   anything else (npm start, a dev build)    no updates; it says how to update instead
-// Every file is checked against the release's SHA256SUMS before anything is replaced. Nothing is replaced while the
+// Every file is checked against the release's SHA256SUMS, itself signed with WakeUp's release key, before anything is replaced. Nothing is replaced while the
 // app is running from it except by rename, so a failed update leaves the old version in place.
 // Inside Electron, `fs` treats app.asar as a folder, so deleting an old install fails with ENOTEMPTY
 // (it can't empty resources/). `original-fs` is the plain Node one; tests run in Node and get node:fs.
@@ -20,8 +20,8 @@ const U = require('./shared/update-core.js');
 const CHECK_EVERY = 6 * 3600e3;
 const DEFAULT_LIB = path.join(os.homedir(), '.local', 'lib', 'wakeup');
 
-// `lib` and `exePath` are for tests; the app uses the defaults.
-function createUpdater({ app, net, log, getSettings, onState, lib: LIB = DEFAULT_LIB, exePath = process.execPath }) {
+// `lib`, `exePath` and `signingKey` are for tests; the app uses the defaults.
+function createUpdater({ app, net, log, getSettings, onState, lib: LIB = DEFAULT_LIB, exePath = process.execPath, signingKey = U.SIGNING_KEY }) {
   const exe = exePath;
   const appImage = process.env.APPIMAGE && fs.existsSync(process.env.APPIMAGE) ? process.env.APPIMAGE : null;
   const mode = !app.isPackaged ? 'dev' : appImage ? 'appimage' : path.dirname(exe) === LIB ? 'installed' : 'other';
@@ -59,6 +59,17 @@ function createUpdater({ app, net, log, getSettings, onState, lib: LIB = DEFAULT
     return st;
   }
 
+  // SHA256SUMS must carry WakeUp's release signature (see update-core.js), or nothing is installed
+  const publicKey = crypto.createPublicKey({ key: Buffer.from(signingKey, 'base64'), format: 'der', type: 'spki' });
+  async function checkSignature(sumsText, rel) {
+    const unsigned = new Error('This update isn’t signed by WakeUp, so it wasn’t installed. Nothing was changed.');
+    if (!rel.sigUrl) throw unsigned;
+    const r = await net.fetch(rel.sigUrl, { signal: abort.signal });
+    if (!r.ok) throw new Error(`Couldn’t get the update’s signature (${r.status})`);
+    const sig = Buffer.from(await r.arrayBuffer());
+    if (sig.length !== 64 || !crypto.verify(null, Buffer.from(sumsText), publicKey, sig)) throw unsigned;
+  }
+
   // stream a release file to disk, hashing as it goes
   async function download(url, dest, size) {
     const r = await net.fetch(url, { signal: abort.signal });
@@ -87,7 +98,9 @@ function createUpdater({ app, net, log, getSettings, onState, lib: LIB = DEFAULT
         await fsp.rm(temp, { recursive: true, force: true }); await fsp.mkdir(temp, { recursive: true });
         const sumsRes = await net.fetch(rel.sumsUrl, { signal: abort.signal });
         if (!sumsRes.ok) throw new Error(`Couldn't get the checksums (${sumsRes.status})`);
-        const want = U.parseSums(await sumsRes.text())[rel.name];
+        const sumsText = await sumsRes.text();
+        await checkSignature(sumsText, rel);
+        const want = U.parseSums(sumsText)[rel.name];
         if (!want) throw new Error('The release has no checksum for this file');
         const file = path.join(temp, rel.name);
         const got = await download(rel.url, file, rel.size);

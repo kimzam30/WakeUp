@@ -66,6 +66,22 @@
     for (const r of deletes) m.set(key(r.kind, r.id), { kind: r.kind, id: r.id, data: {}, deleted: true });
     return [...m.values()];
   }
+  // Rows the server refused (too big, a bad id…) stay on the device. `refused` is their "kind:id" list: a row
+  // leaves it when it later uploads, or when it no longer exists here. At most 50 are remembered.
+  const noteRefused = (refused, row) => [...new Set([...(refused || []), key(row.kind, row.id)])].slice(-50);
+  const clearRefused = (refused, rows) => { const sent = new Set(rows.map((r) => key(r.kind, r.id))); return (refused || []).filter((k) => !sent.has(k)); };
+  // what to upload again for "Try again": the current local copy of each refused row that still exists
+  function refusedRows(planner, refused) {
+    const all = explode(planner);
+    return (refused || []).map((k) => all.get(k)).filter(Boolean).map((r) => ({ ...r, deleted: false }));
+  }
+  // their names for the Sync card: a class's name, a task's title, or what kind of item it is
+  const KIND_WORD = { class: 'a class', change: 'a class change', task: 'a task', semester: 'the semester dates' };
+  function refusedNames(planner, refused) {
+    const all = explode(planner);
+    return (refused || []).filter((k) => all.has(k)).map((k) => { const r = all.get(k); const d = r.data || {};
+      return String(d.title || d.name || d.subject || '').trim().slice(0, 40) || KIND_WORD[r.kind] || 'an item'; });
+  }
   const pendingKeys = (outbox) => new Set((outbox || []).map((r) => key(r.kind, r.id)));
 
   const pickSettings = (s) => Object.fromEntries(SYNCED_SETTINGS.filter((k) => s && k in s).map((k) => [k, s[k]]));
@@ -118,7 +134,7 @@
   }
 
   return {
-    SYNCED_SETTINGS, explode, diff, apply, queue, pendingKeys, pickSettings, settingsDiffer, settingsKeysChanged, remoteSettingsPatch, stillDirty,
+    SYNCED_SETTINGS, noteRefused, clearRefused, refusedRows, refusedNames, explode, diff, apply, queue, pendingKeys, pickSettings, settingsDiffer, settingsKeysChanged, remoteSettingsPatch, stillDirty,
     trackOffline, hasContent, plannerHasContent, mergeFirst, firstOutbox, key,
   };
 }));

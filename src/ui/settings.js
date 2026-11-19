@@ -1,10 +1,10 @@
 'use strict';
-/* global LookCore, hub, $, h, svg, S16, btnSvg, esc, glyph, APPS, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML, closePopover, closeOverlay */
+/* global LookCore, Legal, hub, $, h, svg, S16, btnSvg, esc, glyph, APPS, SV, SET, META, DL, render, commit, L, settingsOpen:writable, dlOpen:writable, menuOpen, toggleMenu, applyPayload, KEYS_HTML, closePopover, closeOverlay */
 // Settings page (Ctrl+,) and Downloads panel (Ctrl+J). Every change goes to main, which validates,
 // applies and sends the result back through applyPayload().
 
 // ---------- settings ----------
-const SECTIONS = [['general', 'General'], ['apps', 'Apps'], ['timetable', 'Timetable'], ['performance', 'Performance'], ['downloads', 'Downloads & screenshots'], ['links', 'Links & documents'], ['appearance', 'Appearance'], ['about', 'About']];
+const SECTIONS = [['general', 'General'], ['apps', 'Apps'], ['timetable', 'Timetable'], ['performance', 'Performance'], ['downloads', 'Downloads & screenshots'], ['links', 'Links & documents'], ['appearance', 'Appearance'], ['privacy', 'Privacy & Legal'], ['about', 'About']];
 let setTab = 'general';
 let appForm = null; // null | {id?, name, url, color, own, error}
 let confirmRemove = null; // custom app id waiting for confirmation
@@ -25,14 +25,15 @@ function syncRow() {
   const actions = y.phase === 'expired'
     ? `<button class="btn small primary" data-act="sync-in">Sign in again</button><button class="btn small" data-act="sync-out">Sign out</button>`
     : `<button class="btn small" data-act="sync-now"${y.phase === 'syncing' ? ' disabled' : ''}>Sync now</button><button class="btn small" data-act="sync-out">Sign out</button>`;
-  return row(`${avatarHtml(y)}Signed in as ${esc(y.name || y.email)}`, `${y.name ? `${esc(y.email)} · ` : ''}${state}${y.rejected ? `<br><span class="bad-text">${n(y.rejected, 'item')} couldn’t sync and stay${y.rejected === 1 ? 's' : ''} on this computer only.</span>` : ''}`, actions)
-    + row('What syncs', 'Your timetable, semester, tasks, theme, nickname, reminders and your own apps. Window layout, folders, notification choices and app sign-ins stay on each device. Signing out keeps everything on this computer.')
+  return row(`${avatarHtml(y)}Signed in as ${esc(y.name || y.email)}`, `${y.name ? `${esc(y.email)} · ` : ''}${state}${y.rejected ? `<br><span class="bad-text">${n(y.rejected, 'item')} couldn’t sync and stay${y.rejected === 1 ? 's' : ''} on this computer only${y.refused?.length ? `: ${esc(y.refused.join(', '))}${y.rejected > y.refused.length ? '…' : ''}` : ''}.</span> <button class="link" data-act="sync-retry-refused">Try again</button>` : ''}`, actions)
+    + row('What syncs', 'Your timetable, semester, tasks, theme, accent, Today layout, nickname, reminders and your own apps. Window layout, folders, notification choices and app sign-ins stay on each device. Signing out keeps everything on this computer. More in Privacy & Legal.')
     + (y.weakKeyring ? row('Sign-in storage', '<span class="bad-text">No system keyring found</span>, so your WakeUp sign-in is stored without encryption on this computer. Install and unlock GNOME Keyring or KWallet to protect it.') : '');
 }
 // only the Sync card changes when sync status does; the rest of the page stays as it is (keeps focus and scroll)
 function refreshSyncCard() {
   const card = document.querySelector('#settings [data-sync-card]');
   if (card) card.innerHTML = syncRow(); else if (settingsOpen && setTab === 'general') renderSettings();
+  refreshCloudCard();
 }
 // your Google profile picture (main fetches it); the first letter of your name until it arrives
 function avatarHtml(st, cls = '') {
@@ -213,10 +214,37 @@ function sectionHtml(tab) {
       + group('Colour', row('Accent colour', 'Buttons, links and highlights. It follows you to your phone and tablet.', accentPicker(S.accent)))
       + todayGroup(S.today);
   }
+  if (tab === 'privacy') return privacyHtml();
   return `<section class="set-group"><h2>Updates</h2><div class="set-card" data-update-card>${updateRow()}</div></section>` + group('WakeUp',
     row(`Version ${esc(META.version || '')}`, 'Problems are written to a log file. Attach it if you report a bug.', '<button class="btn small" data-act="logs">Open log folder</button>')
     + row('Reset layout', 'Close every app and split and go back to Today. Your sign-ins, timetable and tasks stay.', '<button class="btn small" data-act="reset-layout">Reset</button>'))
     + `<section class="set-group"><h2>Keyboard shortcuts</h2><div class="set-card pad">${KEYS_HTML}</div></section>`;
+}
+
+// Privacy & Legal: your cloud data, the privacy policy (src/ui/legal.js, the same text as PRIVACY.md) and the legal notes
+let wipe = null; // null | 'confirm' | 'busy' | {error} | {done}
+function cloudRows() {
+  const y = SYNC; const on = y.signedIn && y.phase !== 'expired';
+  const msg = wipe?.error ? `<br><span class="bad-text">${esc(wipe.error)}</span>` : wipe?.done ? `<br><span class="good-text">${esc(wipe.done)}</span>` : '';
+  if (!y.signedIn) return row('Not signed in', `You’re not signed in, so nothing of yours is in WakeUp’s database from this computer.${msg}`);
+  const del = wipe === 'confirm'
+    ? '<button class="btn small danger" data-act="wipe-yes">Delete everything</button><button class="btn small" data-act="wipe-no">Cancel</button>'
+    : `<button class="btn small danger" data-act="wipe"${on && wipe !== 'busy' ? '' : ' disabled'}>${wipe === 'busy' ? 'Deleting…' : 'Delete my cloud data'}</button>`;
+  return row('Sign out everywhere', 'Ends your WakeUp sign-in on every computer, phone and tablet, this one included. Each keeps its own timetable and tasks. Others notice within an hour.',
+    `<button class="btn small" data-act="sync-out-all"${on && wipe !== 'busy' ? '' : ' disabled'}>Sign out everywhere</button>`)
+    + row(wipe === 'confirm' ? 'Delete your timetable, tasks and settings from the cloud?' : 'Delete my cloud data',
+      `${wipe === 'confirm' ? 'This can’t be undone. Every device is signed out; each keeps its own copy, and signing in again uploads that device’s copy.' : 'Removes everything WakeUp stored for you in its database and signs out every device. Nothing on this computer is deleted.'}${msg}`, del);
+}
+function refreshCloudCard() { const c = document.querySelector('#settings [data-cloud-card]'); if (c) c.innerHTML = cloudRows(); }
+function privacyHtml() {
+  const L = Legal;
+  const policy = L.PRIVACY.map((x) => `${x.h ? `<h3>${esc(x.h)}</h3>` : ''}${(x.p || []).map((t) => `<p>${esc(t)}</p>`).join('')}${x.list ? `<ul>${x.list.map(([l, t]) => `<li>${l ? `<b>${esc(l)}:</b> ` : ''}${esc(t)}</li>`).join('')}</ul>` : ''}`).join('');
+  return `<section class="set-group"><h2>Your cloud data</h2><div class="set-card" data-cloud-card>${cloudRows()}</div></section>`
+    + `<section class="set-group"><h2>Privacy policy</h2><p class="set-lead">Last updated ${esc(L.UPDATED)}.</p><div class="set-card pad legal-text">${policy}</div></section>`
+    + group('Legal', row(esc(L.COPYRIGHT), esc(L.DISCLAIMER))
+      + row('Licence', 'You may use the official builds for yourself. The code may not be copied or redistributed.', '<button class="btn small" data-act="legal-licence">Read the licence</button>')
+      + row('Open-source software', 'WakeUp is built with open-source software. Each piece keeps its own licence.', '<button class="btn small" data-act="legal-notices">View notices</button>')
+      + row('Questions or requests', 'Ask on GitHub, for example to delete your sign-in account.', '<button class="btn small" data-act="legal-contact">Open GitHub</button>'));
 }
 
 const accentPicker = (val) => `<div class="swatches" role="radiogroup" aria-label="Accent colour">${LookCore.ACCENTS.map(([id, name, light]) => `<button role="radio" class="swatch" aria-checked="${id === (val || 'blue')}" data-k="accent" data-v="${id}" data-c="${light[0]}" title="${name}" aria-label="${name}"></button>`).join('')}</div>`;
@@ -320,6 +348,7 @@ function onSettingsClick(e) {
   else if (act === 'sync-in') { SYNC = { ...SYNC, signingIn: true, error: null }; refreshSyncCard(); hub.sync('sign-in').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } }); }
   else if (act === 'sync-cancel') hub.sync('cancel').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
   else if (act === 'sync-now') hub.sync('now');
+  else if (act === 'sync-retry-refused') hub.sync('retry-refused').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
   else if (act === 'sync-out') {
     const go = () => hub.sync('sign-out').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
     if (SYNC.pending && !confirm(`${SYNC.pending} change${SYNC.pending === 1 ? ' hasn’t' : 's haven’t'} synced yet. Sign out anyway? They stay on this computer but won’t reach your other devices.`)) return;
@@ -327,6 +356,19 @@ function onSettingsClick(e) {
   }
   else if (act === 'tt-import') hub.importPlanner().then((r) => { if (r?.error) t.closest('.set-row').querySelector('.set-desc').textContent = r.error; else if (r?.planner) t.textContent = 'Imported'; });
   else if (act === 'logs') hub.app('logs');
+  else if (act === 'legal-licence') hub.openLink(Legal.LICENSE);
+  else if (act === 'legal-notices') hub.openLink(Legal.NOTICES);
+  else if (act === 'legal-contact') hub.openLink(Legal.CONTACT);
+  else if (act === 'wipe') { wipe = 'confirm'; refreshCloudCard(); $('#settings [data-act="wipe-no"]')?.focus(); }
+  else if (act === 'wipe-no') { wipe = null; refreshCloudCard(); }
+  else if (act === 'wipe-yes' || act === 'sync-out-all') {
+    const all = act === 'sync-out-all'; wipe = all ? null : 'busy'; refreshCloudCard();
+    hub.sync(all ? 'sign-out-all' : 'delete-cloud').then((st) => {
+      if (!st) return;
+      wipe = st.error ? { error: st.error } : { done: all ? 'Signed out on every device.' : 'Your cloud data is deleted and every device is signed out.' };
+      SYNC = st; refreshSyncCard(); refreshCloudCard();
+    });
+  }
   else if (act === 'upd-check') { UPD = { ...UPD, phase: 'checking' }; refreshUpdateCard(); hub.update('check'); }
   else if (act === 'upd-install') hub.update('install');
   else if (act === 'upd-cancel') hub.update('cancel');

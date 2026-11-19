@@ -14,6 +14,7 @@ import { AppTile as Glyph } from '../../ui/AppTile';
 import { R, S, useTheme } from '../../ui/theme';
 import { allApps, baseOf, closeApp, closeSplit, closeTab, focusedApp, getState, newTab, openApp, openSplit, setSettings, setTabUrl, updateSplit, useStore, withTabs } from '../../lib/store';
 import type { WebApp } from '../../lib/types';
+import { SignIn } from '../../lib/shared';
 
 // Teams' web app only runs with a desktop browser signature; on a tablet every app gets the full desktop site.
 const DESKTOP_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
@@ -22,6 +23,24 @@ const STRIP = 36; // per-pane title strip in split view
 
 type Nav = { canGoBack: boolean; loading: boolean; url: string; title: string };
 const openOutside = (url: string) => Linking.openURL(url).catch(() => {});
+// What a page inside an app may load or hand to the phone. Web pages load in place; mail and phone links go to their
+// apps; an `intent:` link ("Open in the Teams app") only ever opens its https fallback or the app's Play Store page,
+// never the raw intent (a page doesn't get to pick which part of another app opens). Everything else is refused.
+// originWhitelist: every URL reaches allowLoad (the library's default would hand non-web links to Android first)
+const ANY_ORIGIN = ['*'];
+const INLINE = /^(https?:|about:blank|about:srcdoc|data:|blob:)/i;
+function intentTarget(url: string): string | null {
+  const fallback = url.match(/;S\.browser_fallback_url=([^;]+)/)?.[1];
+  if (fallback) { try { const u = decodeURIComponent(fallback); if (/^https:\/\//i.test(u)) return u; } catch { /* bad escape */ } }
+  const pkg = url.match(/;package=([A-Za-z0-9._]+)/)?.[1];
+  return pkg ? `https://play.google.com/store/apps/details?id=${pkg}` : null;
+}
+function allowLoad(url: string): boolean {
+  if (INLINE.test(url)) return true;
+  if (/^(mailto|tel|sms):/i.test(url)) { openOutside(url); return false; }
+  if (/^intent:/i.test(url)) { const t = intentTarget(url); if (t) openOutside(t); return false; }
+  return false;
+}
 // Google refuses sign-in inside an app's web view. Say so, instead of jumping to Chrome (which would sign Chrome in,
 // not WakeUp, and looks like the app closed).
 let googleAsked = 0;
@@ -50,7 +69,7 @@ export default function Apps() {
   const all = useMemo(() => withTabs(apps, tabs), [apps, tabs]); // apps and their extra tabs
   const refs = useRef<Record<string, ComponentRef<typeof WebView> | null>>({});
   const navRef = useRef<Record<string, Nav>>({});
-  const [, bump] = useState(0); // toolbar re-renders when the focused page's nav state changes
+  const [loading, setLoading] = useState<Record<string, boolean>>({}); // the thin bar while a page loads
   const [titles, setTitles] = useState<Record<string, string>>({}); // page titles, for the tablet's title bar
   const [picker, setPicker] = useState(false);
   const [area, setArea] = useState({ w: 0, h: 0 });
@@ -83,7 +102,7 @@ export default function Apps() {
     navRef.current[id] = { canGoBack: e.canGoBack, loading: e.loading, url: e.url, title: e.title };
     if (id.includes('~') && !e.loading) setTabUrl(id, e.url);
     if (!prev || prev.title !== e.title) setTitles((t) => ({ ...t, [id]: e.title }));
-    if (!prev || prev.loading !== e.loading || prev.title !== e.title || prev.canGoBack !== e.canGoBack) bump((x) => x + 1);
+    if (!prev || prev.loading !== e.loading) setLoading((l) => ({ ...l, [id]: e.loading }));
   }, []);
   const setRef = useCallback((id: string, r: ComponentRef<typeof WebView> | null) => { refs.current[id] = r; }, []);
   const app = all.find((a) => a.id === focused);
@@ -186,7 +205,7 @@ export default function Apps() {
               {inSplit ? <PaneStrip app={a} focused={focused === id} onFocus={() => openApp(id)}
                 onSwap={() => updateSplit({ a: split!.b, b: split!.a })} onMax={() => closeSplit(split!.a === id ? 'a' : 'b')} onClose={() => closeApp(id)} /> : null}
               <Pane app={a} desktop={baseOf(a.id) === 'teams' || wide} onNav={onNav} setRef={setRef} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
-              {navRef.current[id]?.loading ? <View style={{ position: 'absolute', top: inSplit ? STRIP : 0, left: 0, right: 0, height: 2, backgroundColor: c.accent, opacity: 0.6 }} /> : null}
+              {loading[id] ? <View style={{ position: 'absolute', top: inSplit ? STRIP : 0, left: 0, right: 0, height: 2, backgroundColor: c.accent, opacity: 0.6 }} /> : null}
             </View>
           );
         })}
@@ -209,6 +228,19 @@ export default function Apps() {
 }
 
 // A loaded web app. Memoised: switching apps, dragging the divider or another page loading doesn't re-render it.
+// Ebwise's login page has one button, "sign in with Microsoft". Press it for you (like the desktop does), at most
+// once a minute and only on the bare page, so an error shown on it (?errors…) stays for you to read. Android web
+// views share cookies, so if you're signed in to Outlook or Teams the Microsoft step finishes by itself.
+const lastAutoSignIn: Record<string, number> = {};
+function autoSignIn(app: WebApp, url: string, view: ComponentRef<typeof WebView> | null) {
+  const base = baseOf(app.id); const sso = SignIn[base]; if (!sso || !view) return;
+  let u: URL; try { u = new URL(url); } catch { return; }
+  if (u.origin !== new URL(app.url).origin || u.pathname !== sso.page || u.search) return;
+  if (Date.now() - (lastAutoSignIn[app.id] ?? 0) < 60e3) return;
+  lastAutoSignIn[app.id] = Date.now();
+  view.injectJavaScript(`document.querySelector(${JSON.stringify(sso.click)})?.click(); true;`);
+}
+
 const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { app: WebApp; desktop: boolean; onNav: (id: string, e: WebViewNavigation) => void; setRef: (id: string, r: ComponentRef<typeof WebView> | null) => void; onTouch?: () => void }) {
   const { c } = useTheme();
   const [life, setLife] = useState(0); // bumped when Android kills the page's renderer: the page reloads instead of the app crashing
@@ -221,8 +253,10 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { a
         source={{ uri: a.url }}
         userAgent={desktop ? DESKTOP_UA : undefined}
         onNavigationStateChange={(e) => onNav(a.id, e)}
+        onLoadEnd={(e) => autoSignIn(a, e.nativeEvent.url, ref.current)}
         sharedCookiesEnabled thirdPartyCookiesEnabled domStorageEnabled javaScriptEnabled
         setSupportMultipleWindows={false}
+        originWhitelist={ANY_ORIGIN}
         allowsBackForwardNavigationGestures
         allowsFullscreenVideo
         mediaCapturePermissionGrantType={a.ai ? 'grant' : 'prompt'}
@@ -233,9 +267,8 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { a
         onContentProcessDidTerminate={() => setLife((x) => x + 1)}
         renderLoading={() => <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg }}><ActivityIndicator color={c.accent} /></View>}
         onShouldStartLoadWithRequest={(r) => {
-          if (r.url.startsWith('mailto:') || r.url.startsWith('tel:') || r.url.startsWith('intent:')) { openOutside(r.url); return false; }
           if (GOOGLE_SIGN_IN.test(r.url)) { googleBlocked(a); return false; }
-          return true;
+          return allowLoad(r.url);
         }}
         renderError={() => (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: S(3), padding: S(6), backgroundColor: c.bg }}>
@@ -278,29 +311,30 @@ function SmallBtn({ icon, label, onPress }: { icon: string; label: string; onPre
 function Divider({ vertical, at, along }: { vertical: boolean; at: number; along: number }) {
   const { c } = useTheme();
   // the responder is made once; it reads the latest geometry from a ref (re-creating it mid-drag drops the gesture)
-  const geo = useRef({ vertical, at, along }); geo.current = { vertical, at, along };
-  const start = useRef(0);
+  // (a plain box, not a ref: the gesture handlers below only read it while you drag, never during render)
+  const [live] = useState(() => ({ vertical, at, along, start: 0 }));
+  useEffect(() => { Object.assign(live, { vertical, at, along }); }, [live, vertical, at, along]);
   const [drag, setDrag] = useState(false);
-  const pan = useMemo(() => PanResponder.create({
+  const [pan] = useState(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onStartShouldSetPanResponderCapture: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { start.current = geo.current.at; setDrag(true); haptic('tap'); },
+    onPanResponderGrant: () => { live.start = live.at; setDrag(true); haptic('tap'); },
     onPanResponderMove: (_e, g) => {
-      const { vertical: v, along: len } = geo.current;
-      updateSplit({ ratio: Math.min(0.75, Math.max(0.25, (start.current + (v ? g.dy : g.dx)) / len)) });
+      const { vertical: v, along: len } = live;
+      updateSplit({ ratio: Math.min(0.75, Math.max(0.25, (live.start + (v ? g.dy : g.dx)) / len)) });
     },
     onPanResponderRelease: (_e, g) => {
       setDrag(false);
-      const { vertical: v, along: len } = geo.current;
-      const r = (start.current + (v ? g.dy : g.dx)) / len;
+      const { vertical: v, along: len } = live;
+      const r = (live.start + (v ? g.dy : g.dx)) / len;
       const snap = [1 / 3, 0.5, 2 / 3].find((x) => Math.abs(x - r) < 0.04);
       updateSplit({ ratio: Math.min(0.75, Math.max(0.25, snap ?? r)) });
       if (snap) haptic('light');
     },
     onPanResponderTerminate: () => setDrag(false),
-  }), []);
+  }));
   const hit = 32; // touch target wider than the line
   return (
     <View {...pan.panHandlers} accessibilityRole="adjustable" accessibilityLabel="Resize split"

@@ -21,6 +21,9 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('class', 'wakeup');
 }
 
+// Only the installed app may write your launcher and login items: `npm start`, a test profile or the e2e tests would
+// otherwise point them at the development Electron (and each start "fixes" the path to whatever is running).
+const OWNS_SYSTEM = app.isPackaged && !process.env.WAKEUP_PROFILE;
 // WAKEUP_PROFILE=/some/dir runs a separate, throwaway profile (for testing without touching real sign-ins).
 if (process.env.WAKEUP_PROFILE) app.setPath('userData', path.resolve(process.env.WAKEUP_PROFILE));
 else {
@@ -409,7 +412,7 @@ const saveState = () => { clearTimeout(saveTimer); saveTimer = setTimeout(writeS
 const DESKTOP_FILE = path.join(app.getPath('home'), '.local', 'share', 'applications', 'wakeup.desktop');
 const EXEC = () => process.env.APPIMAGE || process.execPath;
 function writeDesktopEntry() {
-  if (!app.isPackaged) return; // `npm start` must not point the launcher at the dev Electron
+  if (!OWNS_SYSTEM) return; // `npm start` or a test profile must not point the launcher at another copy
   const apps = shownServices();
   const exec = `"${EXEC().replace(/(["`$\\])/g, '\\$1')}"`;
   const body = `[Desktop Entry]
@@ -478,6 +481,7 @@ if (process.env.WAKEUP_PROFILE) global.wakeupDebug = { panes, state }; // test p
 const send = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
 // settings changes also reach popped-out Timetable/Tasks windows (week start, nickname)
 const sendSettings = () => { const p = settingsPayload(); for (const w of shellWindows()) w.webContents.send('settings', p); return p; };
+const ownSite = (wc, url) => { const id = wc && paneIdOf(wc); const svc = id && byId[id]; return !!svc && !url.startsWith('about:') && (isInternal(url, svc) || hostIn(url, [safeUrl(svc.url)?.hostname].filter(Boolean))); };
 const paneIdOf = (wc) => { for (const [id, p] of panes) if (p.view?.webContents === wc || p.tabs?.some((t) => t.view?.webContents === wc)) return id; return null; };
 const paneWc = (id) => { const wc = panes.get(id)?.view?.webContents; return wc && !wc.isDestroyed() ? wc : null; };
 
@@ -494,7 +498,10 @@ function configureSession(partition) {
     if (permission === 'media' && !isMediaHost(url) && isMicHost(url)) return cb((details.mediaTypes || []).length > 0 && details.mediaTypes.every((t) => t === 'audio'));
     if (permission === 'media' || permission === 'display-capture') return cb(isMediaHost(url));
     if (permission === 'notifications') return cb(notifyOk(wc));
-    return cb(['clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'speaker-selection'].includes(permission));
+    // reading the clipboard in code (a "Paste" button; Ctrl+V needs no permission): only the app's own sites, so a
+    // page you wandered to inside an app can't read a password you just copied
+    if (permission === 'clipboard-read') return cb(ownSite(wc, url));
+    return cb(['clipboard-sanitized-write', 'fullscreen', 'speaker-selection'].includes(permission));
   });
   ses.setPermissionCheckHandler((wc, permission, origin) => {
     if (permission === 'media') return isMediaHost(origin) || isMicHost(origin);
@@ -1315,6 +1322,7 @@ const LEGACY_AUTOSTART = path.join(path.dirname(AUTOSTART), 'workhub.desktop');
 const autostartOn = () => fs.existsSync(AUTOSTART);
 const autostartBody = () => `[Desktop Entry]\nType=Application\nName=${APP}\nExec="${EXEC()}" --hidden\nIcon=wakeup\nX-GNOME-Autostart-enabled=true\n`;
 function setAutostart(on) {
+  if (!OWNS_SYSTEM) { log('autostart change skipped (not the installed app)'); return; }
   try {
     if (on) {
       fs.mkdirSync(path.dirname(AUTOSTART), { recursive: true });
@@ -1590,8 +1598,13 @@ ipcMain.handle('sync', async (_e, action) => {
   if (!sync) return null;
   if (action === 'sign-in') return withAvatar(await sync.signIn());
   if (action === 'sign-out') return withAvatar(await sync.signOut());
+  // these two can fail (offline): the renderer gets {error} and says so
+  if (action === 'sign-out-all' || action === 'delete-cloud') {
+    try { return withAvatar(await (action === 'delete-cloud' ? sync.deleteCloudData() : sync.signOut({ everywhere: true }))); } catch (e) { return { ...withAvatar(sync.status()), error: e.message }; }
+  }
   if (action === 'cancel') return withAvatar(sync.cancelSignIn());
   if (action === 'now') { await sync.syncNow(); return withAvatar(sync.status()); }
+  if (action === 'retry-refused') return withAvatar(await sync.retryRefused());
   return withAvatar(sync.status());
 });
 ipcMain.handle('planner-export', async (e) => {
@@ -1757,11 +1770,26 @@ app.on('session-created', (ses) => {
   ses.cookies.on('changed', () => { clearTimeout(t); t = setTimeout(() => ses.cookies.flushStore().catch(() => {}), 2000); });
 });
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit()); // shutdown or logout: quit cleanly (layout and cookies saved)
+// WakeUp's own pages (index, pop and link bars) carry the `hub` bridge, so they must never become a website: a
+// dropped link or a stray navigation would hand that site your settings, sign-ins and cloud data. They may only
+// load WakeUp's own files; anything else goes to the browser, and they never open windows themselves.
+const UI_URL = pathToFileURL(UI('')).href;
+const isOwnPage = (url) => typeof url === 'string' && url.startsWith(UI_URL);
+app.on('web-contents-created', (_e, wc) => {
+  const keepOwn = (e, url) => { if (isOwnPage(wc.getURL()) && !isOwnPage(url)) { e.preventDefault(); if (isHttp(url)) openOut(url); } };
+  wc.on('will-navigate', keepOwn);
+  wc.on('will-redirect', keepOwn);
+  wc.on('will-attach-webview', (e) => e.preventDefault()); // no <webview> tags anywhere
+  wc.on('did-navigate', (_ev, url) => { // one of our pages: no popups from it
+    if (isOwnPage(url)) wc.setWindowOpenHandler(({ url: to }) => { if (isHttp(to)) openOut(to); return { action: 'deny' }; });
+  });
+});
+
 app.whenReady().then(() => {
   downloads.push(...state.downloads.map((d) => ({ ...d })));
   createWindow();
   setImmediate(() => {
-    if (fs.existsSync(LEGACY_AUTOSTART)) { fs.rmSync(LEGACY_AUTOSTART, { force: true }); setAutostart(true); } // carry "start at login" over the rename
+    if (!OWNS_SYSTEM) { /* login items belong to the installed app */ } else if (fs.existsSync(LEGACY_AUTOSTART)) { fs.rmSync(LEGACY_AUTOSTART, { force: true }); setAutostart(true); } // carry "start at login" over the rename
     else if (autostartOn() && fs.readFileSync(AUTOSTART, 'utf8') !== autostartBody()) setAutostart(true); // app moved: fix the path
     buildTray();
     writeDesktopEntry();

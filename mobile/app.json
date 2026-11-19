@@ -80,7 +80,8 @@
           }
         }
       ],
-      "./plugins/release-signing.js"
+      "./plugins/release-signing.js",
+      "expo-secure-store"
     ]
   }
 }

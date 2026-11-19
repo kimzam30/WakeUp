@@ -28,6 +28,8 @@ export const SyncCore: {
   diff: (a: PlannerData | null, b: PlannerData) => { upserts: Row[]; deletes: { kind: string; id: string }[] };
   apply: (p: PlannerData, rows: Row[], pending?: Set<string>) => { planner: PlannerData; changed: boolean };
   queue: (outbox: Row[], d: { upserts: Row[]; deletes: { kind: string; id: string }[] }) => Row[];
+  noteRefused: (refused: string[], row: { kind: string; id: string }) => string[]; clearRefused: (refused: string[], rows: { kind: string; id: string }[]) => string[];
+  refusedRows: (p: PlannerData, refused: string[]) => Row[]; refusedNames: (p: PlannerData, refused: string[]) => string[];
   pendingKeys: (outbox: Row[]) => Set<string>;
   pickSettings: (s: object) => Record<string, unknown>;
   settingsDiffer: (a: object, b: object) => boolean;
@@ -70,3 +72,14 @@ export const Look: {
   todaySections: (v: unknown, has?: string[]) => string[]; moveToday: (v: unknown, id: string, dir: 1 | -1) => TodayLayout; showToday: (v: unknown, id: string, on: boolean) => TodayLayout;
   ICON_MAX: number; isIcon: (s: unknown) => boolean; RASTER: RegExp; iconCandidates: (html: string, pageUrl: string) => string[];
 } = require('../../../src/ui/look-core.js');
+
+// the privacy policy and legal notes; the desktop app and PRIVACY.md show the same text
+export const Legal: {
+  OWNER: string; REPO: string; UPDATED: string; CONTACT: string; NOTICES: string; LICENSE: string; COPYRIGHT: string; DISCLAIMER: string;
+  PRIVACY: { h: string; p?: string[]; list?: [string, string][] }[];
+} = require('../../../src/ui/legal.js');
+
+// the built-in apps' sign-in rules (the desktop's src/services.json): which page is the login page, what to click
+export const SignIn: Record<string, { page: string; click: string; docs?: string }> = Object.fromEntries(
+  (require('../../../src/services.json') as { id: string; signIn?: { page: string; click: string; docs?: string } }[])
+    .filter((x) => x.signIn).map((x) => [x.id, x.signIn!]));

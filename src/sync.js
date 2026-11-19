@@ -34,10 +34,12 @@ function createSync(o) {
   const AUTH_FILE = path.join(o.app.getPath('userData'), 'auth.bin');
   const sy = state.sync = Object.assign({
     outbox: [], lastPull: null, settingsAt: null, dirtyKeys: [], device: crypto.randomUUID().slice(0, 8),
-    owner: null, needsFirst: false, offlineDeletes: [], rejected: 0,
+    owner: null, needsFirst: false, offlineDeletes: [], refused: [],
   }, state.sync);
   if (!Array.isArray(sy.outbox)) sy.outbox = [];
   if (!Array.isArray(sy.offlineDeletes)) sy.offlineDeletes = [];
+  if (!Array.isArray(sy.refused)) sy.refused = []; // before 2.10 only a count was kept, with nothing to retry
+  delete sy.rejected;
   if (!Array.isArray(sy.dirtyKeys)) sy.dirtyKeys = sy.settingsDirty ? [...S.SYNCED_SETTINGS] : [];
   delete sy.settingsDirty;
 
@@ -71,7 +73,7 @@ function createSync(o) {
   const status = () => ({
     signedIn: !!user, email: user?.email || '', name: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
     avatar: user?.user_metadata?.avatar_url || '', phase, error, lastSync, pending: sy.outbox.length + (sy.dirtyKeys.length ? 1 : 0),
-    rejected: sy.rejected || 0, signingIn: !!signingIn, weakKeyring,
+    rejected: S.refusedNames(state.planner, sy.refused).length, refused: S.refusedNames(state.planner, sy.refused).slice(0, 5), signingIn: !!signingIn, weakKeyring,
   });
   const report = (p, err = null) => { phase = p; error = err; o.onStatus(status()); };
 
@@ -146,16 +148,48 @@ function createSync(o) {
     return signingIn;
   }
 
-  async function signOut() {
+  // everywhere: the server ends every device's sign-in (they ask to sign in again within the hour, when their
+  // access runs out). It needs the network, so it fails rather than pretending; a local sign-out always works.
+  async function signOut({ everywhere = false } = {}) {
+    if (everywhere) {
+      const { error: e } = await sb.auth.signOut({ scope: 'global' });
+      if (e) throw new Error(friendlyNet(e, 'Couldn’t sign out your other devices'));
+    }
     gen++;
     cancelSignIn?.();
     await stopRealtime();
     clearTimeout(flushTimer); retryIn = 5;
-    await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+    if (!everywhere) await sb.auth.signOut({ scope: 'local' }).catch(() => {});
     // the local timetable stays (and stays owned by this account: signing in as someone else asks first)
-    user = null; Object.assign(sy, { outbox: [], lastPull: null, settingsAt: null, dirtyKeys: [], lastSyncAt: null, needsFirst: false, offlineDeletes: [], rejected: 0 });
+    user = null; Object.assign(sy, { outbox: [], lastPull: null, settingsAt: null, dirtyKeys: [], lastSyncAt: null, needsFirst: false, offlineDeletes: [], refused: [] });
     lastSync = null; o.saveState(); report('off');
     return status();
+  }
+
+  const friendlyNet = (e, what) => (kindOf(e) === 'offline' ? `${what}: you’re offline.` : `${what}: ${String(e?.message || e).slice(0, 120)}`);
+
+  // "Try again" for rows the server refused: queue their current local copy again
+  function retryRefused() {
+    const rows = S.refusedRows(state.planner, sy.refused);
+    sy.refused = [];
+    if (rows.length) sy.outbox = S.queue(sy.outbox, { upserts: rows, deletes: [] });
+    o.saveState(); return flush().then(status);
+  }
+
+  // ---- Delete my cloud data: every row of yours on the server goes, then every device is signed out, so none
+  // uploads half a copy. Each device keeps its own copy; signing in again uploads that device's copy in full.
+  async function deleteCloudData() {
+    if (!user || expired) throw new Error('Sign in first, so WakeUp can reach your cloud data.');
+    const myGen = ++gen; // stops a flush or first sync that's under way from uploading after the delete
+    await stopRealtime(); clearTimeout(flushTimer);
+    await (flushing || Promise.resolve()).catch(() => {}); await (firstRun || Promise.resolve()).catch(() => {});
+    for (const table of ['wakeup_planner_items', 'wakeup_settings']) {
+      const { error: e } = await sb.from(table).delete().eq('user_id', user.id);
+      if (e) { if (myGen === gen) catchUp(); throw new Error(friendlyNet(e, 'Couldn’t delete your cloud data')); }
+    }
+    log('cloud data deleted');
+    // the data is gone either way; if the network drops now, at least this device stops syncing
+    try { return await signOut({ everywhere: true }); } catch (e) { log('sign out everywhere failed', e.message); return signOut(); }
   }
 
   // ---- first sync on this device: merge both sides so nothing is lost, then upload what the cloud lacks.
@@ -252,9 +286,10 @@ function createSync(o) {
             for (const r of batch) {
               const { error: e1 } = await upsertRows([r]);
               if (e1 && kindOf(e1) !== 'bad') throw e1;
-              if (e1) { sy.rejected = (sy.rejected || 0) + 1; log('sync refused a row', r.kind, r.id, e1.message); }
+              if (e1) { sy.refused = S.noteRefused(sy.refused, r); log('sync refused a row', r.kind, r.id, e1.message); } else sy.refused = S.clearRefused(sy.refused, [r]);
             }
           } else if (e) throw e;
+          else if (sy.refused?.length) sy.refused = S.clearRefused(sy.refused, batch);
           if (myGen !== gen) return;
           const sent = new Set(batch); sy.outbox = sy.outbox.filter((r) => !sent.has(r));
           o.saveState();
@@ -371,7 +406,7 @@ function createSync(o) {
   });
 
   return {
-    start, signIn, signOut, syncNow: () => { if (expired) return Promise.resolve(); return flush(); }, status, plannerChanged, settingsChanged,
+    start, signIn, signOut, deleteCloudData, retryRefused, syncNow: () => { if (expired) return Promise.resolve(); return flush(); }, status, plannerChanged, settingsChanged,
     cancelSignIn: () => { cancelSignIn?.(); return status(); },
     onShow: catchUp,
   };

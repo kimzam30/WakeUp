@@ -5,6 +5,9 @@
 // .github/workflows/release.yml). Each release carries the desktop build (a tarball of the unpacked app and an
 // AppImage), the Android APK, and SHA256SUMS listing a checksum for every file. An app only installs a file whose
 // checksum matches, and only from this repository's own release downloads.
+// SHA256SUMS.sig is an Ed25519 signature of SHA256SUMS, made in CI with a key only the release job has. The
+// desktop app refuses an update without a valid one, so a tampered release (or a stolen GitHub login) can't push
+// code to it. Android checks the APK's own signing key instead, which it does by itself.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api; else root.UpdateCore = api;
@@ -12,6 +15,9 @@
   const REPO = 'kimzam30/WakeUp';
   const LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
   const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
+  // the public half of the release-signing key (the private half: ~/.config/wakeup-signing and the
+  // UPDATE_SIGNING_KEY secret). Changing it means old apps can't update to releases signed with the new one.
+  const SIGNING_KEY = 'MCowBQYDK2VwAyEAjBSiILR/8UjxP6xbuZfrnD8Ay+pOKUBTopwvZfDrM4s=';
 
   // '2.10.1' → [2, 10, 1]; a leading 'v' and anything after '-' or '+' are ignored
   const parts = (v) => String(v || '').replace(/^v/i, '').split(/[-+]/)[0].split('.').map((n) => Number.parseInt(n, 10) || 0);
@@ -43,10 +49,11 @@
     const assets = Array.isArray(release.assets) ? release.assets : [];
     const file = assets.find((a) => PATTERNS[kind]?.test(a?.name) && fromRepo(a.browser_download_url));
     const sums = assets.find((a) => a?.name === 'SHA256SUMS' && fromRepo(a.browser_download_url));
+    const sig = assets.find((a) => a?.name === 'SHA256SUMS.sig' && fromRepo(a.browser_download_url));
     if (!file || !sums) return null;
     return {
       version: String(release.tag_name || '').replace(/^v/i, ''),
-      name: file.name, url: file.browser_download_url, size: Number(file.size) || 0, sumsUrl: sums.browser_download_url,
+      name: file.name, url: file.browser_download_url, size: Number(file.size) || 0, sumsUrl: sums.browser_download_url, sigUrl: sig?.browser_download_url || null,
       notes: cleanNotes(release.body), page: typeof release.html_url === 'string' ? release.html_url : `https://github.com/${REPO}/releases`,
     };
   }
@@ -58,5 +65,5 @@
       .slice(0, 12).join('\n');
   }
 
-  return { REPO, LATEST, DOWNLOAD_PREFIX, compare, isNewer, versionCode, parseSums, pick, fromRepo };
+  return { REPO, LATEST, DOWNLOAD_PREFIX, SIGNING_KEY, compare, isNewer, versionCode, parseSums, pick, fromRepo };
 }));

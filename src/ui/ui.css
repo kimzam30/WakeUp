@@ -805,6 +805,14 @@ body.linkwin #linkbar { height: 40px; display: flex; align-items: center; gap: 2
 #linkbar.loading .lb-title { color: var(--muted); }
 @media (max-width: 560px) { .lb-host, #linkbar .btn span { display: none; } }
 .bad-text { color: var(--danger); }
+.good-text { color: var(--good); }
+/* Privacy & Legal: the policy reads as text, not settings rows */
+.legal-text { max-width: 42rem; line-height: 1.55; text-wrap: pretty; }
+.legal-text h3 { margin: 1.2308rem 0 0.3077rem; font-size: 0.9615rem; }
+.legal-text h3:first-child { margin-top: 0; }
+.legal-text p { margin: 0 0 0.6154rem; }
+.legal-text ul { margin: 0 0 0.6154rem; padding-left: 1.2rem; }
+.legal-text li { margin-bottom: 0.3077rem; }
 .upd-notes { display: block; margin-top: 0.3077rem; color: var(--muted); }
 
 /* ---- 2.8: accent swatches, Today layout, profile picture ---- */
