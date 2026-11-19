@@ -435,6 +435,7 @@ kbd { display: inline-block; min-width: 1.3846rem; padding: 1px 0.3846rem; borde
 .fc.paused .fc-main b { color: var(--muted); }
 .task .hbtn.fo { opacity: 0; width: 1.8462rem; height: 1.8462rem; margin: -0.2308rem 0; } .task:hover .hbtn.fo, .task .hbtn.fo:focus-visible, .task .hbtn.fo.on { opacity: 1; } .task .hbtn.fo.on { color: var(--accent-text); }
 .tasks-view .lv-title h2 { font-size: 2.1538rem; font-weight: 750; letter-spacing: -.025em; }
+.tasks-view .qa-hint { margin: -0.3077rem 1.8462rem 0.6154rem; padding: 0 0.7692rem; font-size: 0.9231rem; color: var(--accent-text, var(--muted)); }
 .tasks-view .task-add { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4615rem 0.7692rem; margin: 0 1.8462rem 0.6154rem; padding: 0.3846rem 0.4615rem 0.3846rem 0.7692rem; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--bg); }
 .tasks-view .task-add:focus-within { border-color: var(--accent); box-shadow: 0 0 0 0.2308rem var(--accent-soft); }
 .add-ico { width: 1.3846rem; height: 1.3846rem; display: grid; place-items: center; color: var(--faint); flex: none; }
@@ -732,6 +733,7 @@ code.path { font: 0.9231rem/1.4 ui-monospace, "Ubuntu Mono", monospace; color: v
   .tt-tools .seg { margin-left: auto; }
   .tasks-view .lv-head { padding: 1rem 0.9rem 0.6rem; }
   .tasks-view .task-add { margin: 0 0.9rem 0.6rem; }
+  .tasks-view .qa-hint { margin: -0.3rem 0.9rem 0.6rem; }
   .task-groups { padding: 0 0.9rem 1.2rem; }
   .tt-body.list { padding: 0.4rem 0.8rem 1rem; }
   .tt-dh { padding: 0.35rem 0.4rem; }

@@ -98,6 +98,15 @@ name: tasks
 - scrollUntilVisible: { element: "Midterm", direction: DOWN, centerElement: true }
 - assertVisible: "Exam"
 - takeScreenshot: shots/tasks-10-exam
+# plain-language quick add (A2): the words set the date and class, and the line under the box says so
+- tapOn: "New task"
+- inputText: "Essay tmr CSP1123"
+- assertVisible: "Will add: .*CSP1123.*"
+- takeScreenshot: shots/tasks-11-quickadd-hint
+- tapOn: "Add"
+- hideKeyboard
+- scrollUntilVisible: { element: "Essay", direction: DOWN, centerElement: true }
+- assertVisible: "Essay"
 # kill and relaunch: tasks are still there
 - stopApp
 - launchApp

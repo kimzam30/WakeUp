@@ -140,8 +140,9 @@ function onTodaySubmit(e) {
   const f = e.target;
   if (f.classList.contains('nick')) { const v = f.nick.value.trim(); if (v) hub.setSettings({ nickname: v }); return; }
   if (f.classList.contains('quick-add')) {
-    const text = f.task.value.trim(); if (!text) return;
+    if (!f.task.value.trim()) return;
+    const q = quickParse(f.task.value); // "lab report fri CSP1123": a date or class in the words wins over "today"
     f.task.value = '';
-    savePlanner({ tasks: [{ id: newId('t'), text, done: false, due: Planner.today(), classId: null, created: Date.now(), doneAt: null }, ...PL.tasks] });
+    savePlanner({ tasks: [{ id: newId('t'), text: q.text, done: false, due: q.due !== undefined ? q.due : Planner.today(), classId: q.classId ?? null, created: Date.now(), doneAt: null, ...(q.exam ? { exam: true, at: q.at, venue: q.venue } : null) }, ...PL.tasks] });
   }
 }

@@ -14,7 +14,7 @@ import Animated from 'react-native-reanimated';
 import { SwipeRow, enter, leave, move } from '../../ui/motion';
 import { Icon } from '../../ui/Icon';
 import { R, S, T, useTheme } from '../../ui/theme';
-import { Planner, Schema } from '../../lib/shared';
+import { Planner, QuickAddCore, Schema } from '../../lib/shared';
 import { setPlanner, useStore } from '../../lib/store';
 import { useToday } from '../../lib/hooks';
 import { classLabel, fmtDate, fmtTime } from '../../lib/format';
@@ -140,12 +140,18 @@ function QuickAdd({ today, focusKey }: { today: string; focusKey?: string }) {
   useEffect(() => { if (!focusKey) return; const t = setTimeout(() => input.current?.focus(), 350); return () => clearTimeout(t); }, [focusKey]);
   const planner = useStore((s) => s.planner);
   const mode = useStore((s) => s.settings.classLabel);
+  const weekStart = useStore((s) => s.settings.weekStart);
+  // what the words say ("lab report fri CSP1123"); they win over the chips below
+  const q = useMemo(() => (draft.trim() ? QuickAddCore.parse(draft, { today, weekStart, classes: planner.classes, nextMeeting: (id, t) => Planner.nextMeeting(planner, id, t) }) : null), [draft, today, weekStart, planner]);
+  const hint = q ? q.found.map((f) => (f.kind === 'due' ? (q.due ? fmtDate(q.due) : '') : f.kind === 'venue' ? `@${f.label}` : f.label)).filter(Boolean).join(' · ') : '';
   const cls = classId ? planner.classes.find((k) => k.id === classId) : undefined;
   const nextDate = useMemo(() => (cls ? Planner.nextMeeting(planner, cls.id, today) : null), [cls, planner, today]);
   const tomorrow = Planner.addDays(today, 1);
   const add = () => {
-    const text = draft.trim(); if (!text) return;
-    setPlanner((p) => ({ tasks: [{ id: Schema.newId('t'), text, done: false, due, classId: cls ? cls.id : null, created: Date.now(), doneAt: null, ...(exam ? { exam: true, at: null, venue: '' } : null) }, ...p.tasks] }));
+    if (!q) return;
+    const k = q.classId !== undefined ? q.classId : cls ? cls.id : null;
+    const isExam = q.exam || exam;
+    setPlanner((p) => ({ tasks: [{ id: Schema.newId('t'), text: q.text, done: false, due: q.due !== undefined ? q.due : due, classId: k, created: Date.now(), doneAt: null, ...(isExam ? { exam: true, at: q.at, venue: q.venue } : null) }, ...p.tasks] }));
     setDraft(''); input.current?.clear(); haptic('light');
     // the next task starts fresh: no class, due today (audit M1)
     setClassId(null); setDue(today); setExam(false);
@@ -164,10 +170,11 @@ function QuickAdd({ today, focusKey }: { today: string; focusKey?: string }) {
     <View style={{ gap: S(3) }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingLeft: S(1), paddingRight: S(1) + 2, minHeight: 56, borderRadius: R.card, borderCurve: 'continuous', backgroundColor: c.sunken }}>
         <View style={{ paddingLeft: S(2) }}><Icon name="plus" size={20} color={c.faint} /></View>
-        <TextInput ref={input} defaultValue="" onChangeText={setDraft} onSubmitEditing={add} submitBehavior="submit" returnKeyType="done" placeholder="Add a task" placeholderTextColor={c.faint} maxLength={300}
+        <TextInput ref={input} defaultValue="" onChangeText={setDraft} onSubmitEditing={add} submitBehavior="submit" returnKeyType="done" placeholder="Try “lab report fri CSP1123”" placeholderTextColor={c.faint} maxLength={300}
           style={[T.body, { flex: 1, color: c.text, minHeight: 48, paddingHorizontal: S(1) }]} accessibilityLabel="New task" />
         <Button kind="primary" label="Add" small onPress={add} disabled={!draft.trim()} style={{ alignSelf: 'center' }} />
       </View>
+      {hint ? <Txt kind="small" style={{ color: c.accentText, marginTop: -S(1), paddingHorizontal: S(3) }}>{`Will add: ${hint}`}</Txt> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: S(2) }}>
         {chip(today, nextDate === today ? 'Today · next class' : 'Today')}
         {chip(tomorrow, nextDate === tomorrow ? 'Tomorrow · next class' : 'Tomorrow')}

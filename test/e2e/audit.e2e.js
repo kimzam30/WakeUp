@@ -32,7 +32,11 @@ test('audit: every screen, three window sizes, light and dark: no sideways spill
   try {
     await seed(w.page);
     const p = await planner(w.page);
-    assert.deepEqual(p.tasks.map((t) => t.text || t.title).sort(), [...TEXTS].sort(), 'every language and emoji saved as typed');
+    // quick add reads "before Friday" as the due date (v3, A2) and takes it out of the title; every other word stays
+    const saved = TEXTS.map((t) => t.replace(/ before Friday$/, ''));
+    assert.deepEqual(p.tasks.map((t) => t.text || t.title).sort(), saved.sort(), 'every language and emoji saved as typed');
+    const slides = p.tasks.find((t) => t.text.startsWith('Prepare slides'));
+    assert.equal(new Date(`${slides.due}T12:00`).getDay(), 5, '"before Friday" makes it due on a Friday');
     for (const theme of ['light', 'dark']) {
       if (!(await w.page.isVisible('#settings .set-nav'))) await w.page.click('#sidebar button[aria-label="Settings"]');
       await w.page.click('#settings [data-tab="appearance"]');

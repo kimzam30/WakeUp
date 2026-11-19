@@ -21,7 +21,7 @@ function TasksView(root) {
     <header class="lv-head"><div class="lv-title"><h2>Tasks</h2><span class="lv-sub"></span></div><div class="focus-box"></div></header>
     <form class="task-add" autocomplete="off">
       <span class="add-ico">${btnSvg('plus')}</span>
-      <input name="text" maxlength="300" placeholder="Add a task, then press Enter" aria-label="New task">
+      <input name="text" maxlength="300" placeholder="Try “lab report fri CSP1123”" aria-label="New task" aria-describedby="qa-hint">
       <div class="add-opts">
         <div class="chips" role="radiogroup" aria-label="Due">
           <button type="button" role="radio" data-due="today">Today</button><button type="button" role="radio" data-due="tomorrow">Tomorrow</button><button type="button" role="radio" data-due="">No date</button><button type="button" role="radio" data-due="next" hidden title="The next time this class meets">Next class</button>
@@ -31,18 +31,26 @@ function TasksView(root) {
         <select name="cls" aria-label="Class"></select>
       </div>
     </form>
+    <div class="qa-hint" id="qa-hint" aria-live="polite" hidden></div>
     <div class="task-groups"></div>`;
   const form = $('.task-add', root); const input = $('[name="text"]', form);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const text = input.value.trim(); if (!text) return;
+    if (!input.value.trim()) return;
+    // words in the text win over the chips: "essay fri CSP1123" is due Friday for CSP1123 whatever is picked below
+    const q = quickParse(input.value); const text = q.text;
+    const classId = q.classId !== undefined ? q.classId : st.classId || null;
     const today = Planner.today();
-    const due = st.due === 'today' ? today : st.due === 'tomorrow' ? Planner.addDays(today, 1) : st.due === 'next' ? Planner.nextMeeting(PL, st.classId, today) : st.due || null;
-    savePlanner({ tasks: [{ id: newId('t'), text, done: false, due, classId: st.classId || null, created: Date.now(), doneAt: null, ...(st.exam ? { exam: true, at: null, venue: '' } : null) }, ...PL.tasks] });
-    input.value = '';
+    const due = q.due !== undefined ? q.due : st.due === 'today' ? today : st.due === 'tomorrow' ? Planner.addDays(today, 1) : st.due === 'next' ? Planner.nextMeeting(PL, classId, today) : st.due || null;
+    const exam = q.exam || st.exam;
+    savePlanner({ tasks: [{ id: newId('t'), text, done: false, due, classId, created: Date.now(), doneAt: null, ...(exam ? { exam: true, at: q.at, venue: q.venue } : null) }, ...PL.tasks] });
+    input.value = ''; showHint();
     // the next task starts fresh: no class, due today, not an exam (audit M1)
     st.classId = ''; st.due = 'today'; st.exam = false; $('[name="date"]', form).value = ''; render();
   });
+  const hint = $('.qa-hint', root);
+  const showHint = () => { const h = input.value.trim() ? quickHint(quickParse(input.value)) : ''; hint.hidden = !h; hint.textContent = h ? `Will add: ${h}` : ''; };
+  input.addEventListener('input', showHint);
   form.addEventListener('click', (e) => { if (e.target.closest('[data-exam]')) { st.exam = !st.exam; render(); input.focus(); return; } const b = e.target.closest('[data-due]'); if (b) { st.due = b.dataset.due; $('[name="date"]', form).value = ''; render(); input.focus(); } });
   form.addEventListener('change', (e) => {
     if (e.target.name === 'date' && e.target.value) { st.due = e.target.value; render(); }

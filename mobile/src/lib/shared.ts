@@ -63,6 +63,12 @@ export const Focus: {
   remaining: (s: FocusState, now: number) => number; paused: (s: FocusState) => boolean; label: Record<FocusPhase, string>; clock: (ms: number) => string;
 } = require('../../../src/ui/focus-core.js');
 
+// Plain-language quick add, shared with the desktop app: "lab report fri CSP1123" → text, due, class, exam
+export type QuickParsed = { text: string; due?: string | null; classId?: string; exam: boolean; at: string | null; venue: string; found: { kind: 'due' | 'class' | 'exam' | 'at' | 'venue'; label: string }[] };
+export const QuickAddCore: {
+  parse: (text: string, o: { today: string; weekStart?: 0 | 1; classes: { id: string; code: string }[]; nextMeeting?: (classId: string, today: string) => string | null }) => QuickParsed;
+} = require('../../../src/ui/quickadd-core.js');
+
 // Accent colours, the Today layout and app-icon helpers, shared with the desktop app
 export type TodayLayout = { order: string[]; hidden: string[] };
 export const Look: {

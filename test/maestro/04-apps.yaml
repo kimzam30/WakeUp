@@ -10,19 +10,29 @@ name: apps
 - extendedWaitUntil: { visible: "Reload", timeout: 15000 }
 - waitForAnimationToEnd: { timeout: 8000 }
 - takeScreenshot: shots/apps-02-ebwise
+# phones: ⋯ holds the actions, with words (v3 top bar, option A)
+- tapOn: "More for Ebwise"
+- assertVisible: "Open in browser"
+- takeScreenshot: shots/apps-03-more-sheet
 - tapOn: "New Ebwise tab"
 - waitForAnimationToEnd: { timeout: 8000 }
 - takeScreenshot: shots/apps-03-ebwise-tab2
 - tapOn: { text: "Close tab.*", optional: true }
-- tapOn: "Outlook"
+# the app's name opens "Your apps"
+- tapOn: "Ebwise. Switch app"
+- assertVisible: "Your apps"
+- takeScreenshot: shots/apps-04-your-apps
+- tapOn: "Outlook, .*"
 - waitForAnimationToEnd: { timeout: 8000 }
 - takeScreenshot: shots/apps-04-outlook
-- tapOn: "Teams"
+- tapOn: "Outlook. Switch app"
+- tapOn: "Teams, .*"
 - waitForAnimationToEnd: { timeout: 8000 }
 - takeScreenshot: shots/apps-05-teams
 - tapOn: "Reload"
 # Android Back inside a web page: should go back in the page / to the app list, not close WakeUp
-- tapOn: "Ebwise"
+- tapOn: "Teams. Switch app"
+- tapOn: "Ebwise, .*"
 - back
 - takeScreenshot: shots/apps-06-after-back
-- assertVisible: "Ebwise"
+- assertVisible: "Ebwise.*"

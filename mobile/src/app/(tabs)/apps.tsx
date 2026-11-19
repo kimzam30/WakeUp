@@ -76,10 +76,11 @@ export default function Apps() {
   const [loading, setLoading] = useState<Record<string, boolean>>({}); // the thin bar while a page loads
   const [titles, setTitles] = useState<Record<string, string>>({}); // page titles, for the tablet's title bar
   const [picker, setPicker] = useState(false);
+  const [switching, setSwitching] = useState(false); // phones: the "Your apps" sheet from the app name
+  const [more, setMore] = useState(false); // phones: the actions sheet from ⋯
   const [area, setArea] = useState({ w: 0, h: 0 });
   const canSplit = size !== 'cover' && apps.length > 1;
   const shown = split && canSplit ? [split.a, split.b] : active ? [active] : [];
-  const shownBase = shown.map(baseOf);
   const vertical = area.h > area.w; // portrait window: stack the halves
 
   // a split saved on a tablet doesn't survive the cover screen; apps that were hidden or removed close
@@ -133,20 +134,75 @@ export default function Apps() {
   const tabList = base && tabs[base]?.length ? [base, ...tabs[base].map((t) => t.id)] : [];
   const tabLabel = (id: string, i: number) => { const t = titles[id]; return t && !/^https?:/.test(t) ? t : i ? `${app!.name} ${i + 1}` : app!.name; };
 
-  const switcher = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: S(2), paddingHorizontal: S(3), alignItems: 'center' }}>
-      {apps.map((a) => {
-        const on = shownBase.includes(a.id);
-        return (
-          <Pressable key={a.id} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={a.name} accessibilityHint={canSplit ? 'Long-press to open beside the current app' : undefined}
-            onPress={() => openApp(a.id)} onLongPress={() => { if (canSplit && focused && a.id !== focused) { haptic('tap'); openSplit(a.id); } }}
-            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), height: 40, paddingLeft: 6, paddingRight: size === 'compact' && !on ? 6 : S(3), borderRadius: R.pill, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent', borderWidth: 1, borderColor: a.id === base && split ? c.accent : on ? c.accent : c.line })}>
-            <Glyph app={a} size={28} />
-            {size !== 'compact' || on ? <Txt kind="small" style={{ fontWeight: '600', color: on ? c.text : c.muted }}>{a.name}</Txt> : null}
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+  // Phones (v3 top bar, option A): the app's name opens "Your apps", ⋯ holds the rest with words, not bare icons.
+  // The tablet keeps its row of buttons: it has the room, and its apps are in the sidebar.
+  const isOpen = (id: string) => openIds.some((o) => baseOf(o) === id);
+  // a page with no title shows its address ("login.microsoftonline.com…"): leave those out
+  const pageTitle = app && titles[app.id] && titles[app.id] !== app.name && !/^https?:|^[^\s]+\.[a-z]{2,}/i.test(titles[app.id]) ? titles[app.id] : '';
+  const openCount = apps.filter((a) => isOpen(a.id)).length;
+  const phoneTitle = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(2), paddingLeft: S(2), minWidth: 0 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={app ? `${app.name}. Switch app` : 'Choose an app'} accessibilityHint={openCount > 1 ? `${openCount} apps open` : undefined}
+        onPress={() => { haptic('tap'); setSwitching(true); }}
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), height: 44, paddingLeft: 6, paddingRight: S(2), borderRadius: R.pill, borderCurve: 'continuous', backgroundColor: pressed ? c.hover : c.sunken, flexShrink: 1, minWidth: 0 })}>
+        {app ? <Glyph app={app} size={28} /> : <View style={{ width: 28, alignItems: 'center' }}><Icon name="apps" size={20} color={c.text} /></View>}
+        <Txt kind="headline" numberOfLines={1} style={{ flexShrink: 1 }}>{app ? app.name : 'Apps'}</Txt>
+        <Icon name="chevD" size={16} color={c.muted} />
+        {openCount > 1 ? <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: R.pill, backgroundColor: c.active, alignItems: 'center', justifyContent: 'center' }}><Txt kind="tiny" style={{ color: c.muted, letterSpacing: 0 }}>{String(openCount)}</Txt></View> : null}
+      </Pressable>
+      {pageTitle ? <Txt kind="small" faint numberOfLines={1} style={{ flex: 1 }}>{pageTitle}</Txt> : null}
+    </View>
+  );
+  const act = (k: string) => {
+    setMore(false); if (!app) return;
+    if (k === 'qr') { if (qrOn === app.id) stopQr(); else startQr(app.id); }
+    else if (k === 'back') refs.current[app.id]?.goBack();
+    else if (k === 'tab') { haptic('tap'); newTab(base!); }
+    else if (k === 'split') { if (split) closeSplit(); else setPicker(true); }
+    else if (k === 'browser') openOutside(navRef.current[app.id]?.url || app.url);
+    else if (k === 'close') closeApp(app.id);
+  };
+  const row = (k: string, icon: string, label: string, tint?: string) => <MenuRow icon={icon} label={label} tint={tint} onPress={() => act(k)} />;
+  const sheets = (
+    <>
+      <Sheet open={switching} onClose={() => setSwitching(false)} title="Your apps">
+        <View style={{ gap: S(1) }}>
+          {apps.map((a) => {
+            const on = a.id === base; const open = isOpen(a.id);
+            const sub = on && pageTitle ? pageTitle : open ? 'Open' : 'Not open';
+            return (
+              <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: R.input, backgroundColor: on ? c.accentSoft : 'transparent' }}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`${a.name}, ${sub}`} accessibilityState={{ selected: on }} accessibilityHint={canSplit ? 'Long-press to open beside the current app' : undefined}
+                  onPress={() => { setSwitching(false); openApp(a.id); }}
+                  onLongPress={() => { if (canSplit && focused && a.id !== base) { haptic('tap'); setSwitching(false); openSplit(a.id); } }}
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: S(3), minHeight: 60, paddingLeft: S(3) }}>
+                  <Glyph app={a} size={32} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Txt kind="headline" numberOfLines={1}>{a.name}</Txt>
+                    <Txt kind="small" muted={open} faint={!open} numberOfLines={1}>{sub}</Txt>
+                  </View>
+                </Pressable>
+                {open ? <IconButton icon="close" label={`Close ${a.name}`} onPress={() => closeApp(a.id)} color={c.muted} /> : <View style={{ width: S(3) }} />}
+              </View>
+            );
+          })}
+          <Button label="Manage apps" icon="settings" onPress={() => { setSwitching(false); router.push('/settings/apps'); }} style={{ marginTop: S(2) }} />
+        </View>
+      </Sheet>
+      <Sheet open={more && !!app} onClose={() => setMore(false)} title={app?.name ?? ''}>
+        {app ? (
+          <View style={{ gap: S(1) }}>
+            {isMeetingUrl(app.url) ? row('qr', 'qr', qrOn === app.id ? 'Stop looking for the attendance QR' : 'Scan for an attendance QR', qrOn === app.id ? c.accentText : undefined) : null}
+            {row('back', 'back', 'Go back a page')}
+            {!split ? row('tab', 'plus', `New ${app.name} tab`) : null}
+            {canSplit ? row('split', 'split', split ? 'Close split screen' : 'Split with another app') : null}
+            {row('browser', 'external', 'Open in browser')}
+            <View style={{ height: 1, backgroundColor: c.line, marginVertical: S(1) }} />
+            {row('close', 'close', `Close ${app.name}`)}
+          </View>
+        ) : null}
+      </Sheet>
+    </>
   );
 
   if (!apps.length) {
@@ -179,8 +235,12 @@ export default function Apps() {
             <Txt kind="small" numberOfLines={1} style={{ flexShrink: 1, fontWeight: '600' }}>{app.name}</Txt>
             {titles[app.id] && titles[app.id] !== app.name && !/^https?:/.test(titles[app.id]) ? <Txt kind="small" muted numberOfLines={1} style={{ flexShrink: 1 }}>{titles[app.id]}</Txt> : null}
           </View>
-        ) : null) : switcher}</View>
-        {app ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
+        ) : null) : phoneTitle}</View>
+        {app && !wide ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
+          <IconButton icon="reload" label="Reload" onPress={() => refs.current[app.id]?.reload()} />
+          <IconButton icon="more" label={`More for ${app.name}`} onPress={() => { haptic('tap'); setMore(true); }} />
+        </View> : null}
+        {app && wide ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
           {size !== 'compact' ? <IconButton icon="back" label="Back" onPress={() => refs.current[app.id]?.goBack()} /> : null}
           {isMeetingUrl(app.url) ? <IconButton icon="qr" label={qrOn === app.id ? 'Stop looking for an attendance QR' : 'Scan for an attendance QR on screen'} color={qrOn === app.id ? c.accentText : undefined} onPress={() => (qrOn === app.id ? stopQr() : startQr(app.id))} /> : null}
           <IconButton icon="reload" label="Reload" onPress={() => refs.current[app.id]?.reload()} />
@@ -238,6 +298,7 @@ export default function Apps() {
         })}
         {split && shown.length > 1 && area.w ? <Divider vertical={vertical} at={first} along={along} /> : null}
       </View>
+      {wide ? null : sheets}
       <Sheet open={picker} onClose={() => setPicker(false)} title="Split with…">
         <Txt muted>{vertical ? 'It opens below the app you have open. Drag the bar between them to resize.' : 'It opens beside the app you have open. Drag the bar between them to resize.'}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S(3) }}>
@@ -251,6 +312,18 @@ export default function Apps() {
         </View>
       </Sheet>
     </View>
+  );
+}
+
+// One line of the ⋯ sheet: an icon and words, the whole row is the button
+function MenuRow({ icon, label, onPress, tint }: { icon: string; label: string; onPress: () => void; tint?: string }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
+      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(4), minHeight: 52, paddingHorizontal: S(3), borderRadius: R.input, backgroundColor: pressed ? c.hover : 'transparent' })}>
+      <Icon name={icon} size={20} color={tint ?? c.muted} />
+      <Txt style={{ flex: 1, color: tint ?? c.text }}>{label}</Txt>
+    </Pressable>
   );
 }
 
@@ -268,24 +341,72 @@ function autoSignIn(app: WebApp, url: string, view: ComponentRef<typeof WebView>
   view.injectJavaScript(`document.querySelector(${JSON.stringify(sso.click)})?.click(); true;`);
 }
 
+// A site's offline cache (its service worker) can break inside Android's web view and then fail every page load
+// with net::ERR_FAILED: Android's black "Web page not available" page with the upside-down droid. Teams does this
+// (seen on the Z Flip, 2026-11-20). Fix it like a browser's "clear site data", but only the worker: open a plain page on
+// that site outside the worker's reach (/robots.txt), unregister its workers there, then load the page again. Cookies
+// and sign-ins stay. At most once per site every 10 minutes, so a site that is really down shows the normal error.
+const workerResetAt: Record<string, number> = {};
+const RESET_PAGE = '/robots.txt';
+const PROBE = `window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({wakeupProbe:location.protocol}));true;`;
+const CLEAR_WORKERS = `(function(){var done=function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({wakeupWorkersCleared:true}));};
+try{navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));}).then(done,done);}catch(e){done();}})();true;`;
+function brokenWorkerOrigin(url: string, description?: string) {
+  if (description !== undefined && !/ERR_FAILED/.test(description)) return null;
+  let u: URL; try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' || u.pathname === RESET_PAGE) return null;
+  if (Date.now() - (workerResetAt[u.origin] ?? 0) < 10 * 60e3) return null;
+  workerResetAt[u.origin] = Date.now();
+  return u.origin;
+}
+
 const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onTouch }: { app: WebApp; desktop: boolean; onNav: (id: string, e: WebViewNavigation) => void; setRef: (id: string, r: ComponentRef<typeof WebView> | null) => void; onMessage: (id: string, data: string) => void; onTouch?: () => void }) {
   const { c } = useTheme();
   const [life, setLife] = useState(0); // bumped when Android kills the page's renderer: the page reloads instead of the app crashing
   const ref = useRef<ComponentRef<typeof WebView> | null>(null);
+  const [src, setSrc] = useState(a.url);
+  const resetting = useRef<string | null>(null); // the page to load again once the site's workers are cleared
+  const [broken, setBroken] = useState(false); // Android's own error page is showing: cover it with ours
+  const loadingUrl = useRef<string | null>(null);
+  const probes = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // A load the worker fails never ends or errors on Android's side (checked on the emulator with a broken worker):
+  // only "started" arrives, then Android's error page. So ask the page where it is a few seconds in.
+  const started = (url: string) => {
+    probes.current.forEach(clearTimeout); setBroken(false);
+    if (!/^https:/.test(url)) return;
+    loadingUrl.current = url;
+    probes.current = [2500, 8000].map((ms) => setTimeout(() => ref.current?.injectJavaScript(PROBE), ms));
+  };
+  const failed = (url: string, description?: string) => {
+    if (resetting.current) return;
+    const origin = brokenWorkerOrigin(url, description);
+    if (!origin) { if (description === undefined) setBroken(true); return; }
+    resetting.current = url; setSrc(origin + RESET_PAGE);
+  };
+  useEffect(() => () => probes.current.forEach(clearTimeout), []);
   return (
     <View style={{ flex: 1 }} onTouchStart={onTouch}>
       <WebView
         key={life}
         ref={(r) => { ref.current = r; setRef(a.id, r); }}
-        source={{ uri: a.url }}
+        source={{ uri: src }}
         userAgent={desktop ? DESKTOP_UA : undefined}
         onNavigationStateChange={(e) => onNav(a.id, e)}
+        onLoadStart={(e) => started(e.nativeEvent.url)}
         onLoadEnd={(e) => {
+          const { url } = e.nativeEvent;
+          if (resetting.current && url.endsWith(RESET_PAGE)) { ref.current?.injectJavaScript(CLEAR_WORKERS); return; }
           autoSignIn(a, e.nativeEvent.url, ref.current);
           // saved sign-in: typed only on Microsoft's sign-in page (lib/signins.ts)
           signInScript(e.nativeEvent.url).then((js) => { if (js) ref.current?.injectJavaScript(js); }).catch(() => {});
         }}
-        onMessage={(e) => onMessage(a.id, e.nativeEvent.data)}
+        onError={(e) => failed(e.nativeEvent.url, e.nativeEvent.description)}
+        onMessage={(e) => {
+          const d = e.nativeEvent.data;
+          if (d.includes('wakeupProbe')) { if (d.includes('chrome-error:')) failed(loadingUrl.current ?? a.url); return; }
+          if (resetting.current && d.includes('wakeupWorkersCleared')) { setSrc(resetting.current); resetting.current = null; return; }
+          onMessage(a.id, e.nativeEvent.data);
+        }}
         sharedCookiesEnabled thirdPartyCookiesEnabled domStorageEnabled javaScriptEnabled
         setSupportMultipleWindows={false}
         originWhitelist={ANY_ORIGIN}
@@ -312,6 +433,14 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onT
         )}
         style={{ flex: 1, backgroundColor: c.bg }}
       />
+      {broken ? (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: S(3), padding: S(6), backgroundColor: c.bg }}>
+          <Icon name="offline" size={32} color={c.faint} />
+          <Txt kind="headline">{`${a.name} didn’t load`}</Txt>
+          <Txt muted style={{ textAlign: 'center' }}>Check your connection, then try again. If it keeps happening, open it in your browser from the top bar.</Txt>
+          <Button label="Try again" icon="reload" onPress={() => { setBroken(false); ref.current?.reload(); }} />
+        </View>
+      ) : null}
     </View>
   );
 });

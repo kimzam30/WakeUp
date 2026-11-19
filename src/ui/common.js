@@ -184,3 +184,12 @@ function fillTabStrip(el, id, name) {
     all[(j + all.length) % all.length]?.focus(); e.preventDefault();
   });
 }
+
+// Plain-language quick add (v3, A2): "lab report fri CSP1123" → text, due date, class, exam (src/ui/quickadd-core.js)
+function quickParse(text) {
+  return QuickAdd.parse(text, { today: Planner.today(), weekStart: WEEK_START, classes: PL.classes, nextMeeting: (id, t) => Planner.nextMeeting(PL, id, t) });
+}
+// what it understood, for the line under the box: "Fri 21 Nov · CSP1123 · Exam 2:00 pm"
+function quickHint(p) {
+  return p.found.map((f) => (f.kind === 'due' ? (p.due ? Planner.parse(p.due).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : '') : f.kind === 'venue' ? `@${f.label}` : f.label)).filter(Boolean).join(' · ');
+}
