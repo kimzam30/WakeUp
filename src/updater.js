@@ -7,8 +7,10 @@
 //   anything else (npm start, a dev build)    no updates; it says how to update instead
 // Every file is checked against the release's SHA256SUMS before anything is replaced. Nothing is replaced while the
 // app is running from it except by rename, so a failed update leaves the old version in place.
-const fs = require('node:fs');
-const fsp = require('node:fs/promises');
+// Inside Electron, `fs` treats app.asar as a folder, so deleting an old install fails with ENOTEMPTY
+// (it can't empty resources/). `original-fs` is the plain Node one; tests run in Node and get node:fs.
+const fs = process.versions.electron ? require('original-fs') : require('node:fs');
+const fsp = fs.promises;
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
