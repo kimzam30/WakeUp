@@ -98,7 +98,7 @@ function TasksView(root) {
         ${c ? `<span class="cls-chip" data-c="${esc(c.color)}"><i></i>${esc(classFull(c))}</span>` : ''}
         <label class="due-chip${late ? ' late' : ''}"><span>${t.due ? esc(dueLabel(t.due, today)) : 'Add date'}</span><input type="date" name="due" value="${esc(t.due || '')}" aria-label="Due date"></label>
       </div></div>
-      ${t.done ? '' : `<button class="hbtn fo${Focus.taskId() === t.id ? ' on' : ''}" data-act="focus-task" aria-label="Focus on this task" title="Focus on this task for ${FocusCore.LENGTHS.focus} minutes">${btnSvg('target')}</button>`}
+      ${t.done ? '' : `<button class="hbtn fo${Focus.taskId() === t.id ? ' on' : ''}" data-act="focus-task" aria-label="Focus on this task" title="Focus on this task for ${Focus.lengths().focus} minutes">${btnSvg('target')}</button>`}
       ${t.done ? '' : `<button class="hbtn ex${t.exam ? ' on' : ''}" data-act="exam" aria-pressed="${!!t.exam}" aria-label="${t.exam ? 'Not an exam' : 'Mark as an exam'}" title="${t.exam ? 'Not an exam' : 'Mark as an exam (countdown on Today)'}">${btnSvg('exam')}</button>`}
       <button class="hbtn del" data-act="del" aria-label="Delete task" title="Delete">${btnSvg('trash')}</button></li>`;
   }
