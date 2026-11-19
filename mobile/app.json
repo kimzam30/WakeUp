@@ -2,7 +2,7 @@
   "expo": {
     "name": "WakeUp",
     "slug": "wakeup",
-    "version": "2.9.1",
+    "version": "2.10.0",
     "scheme": "wakeup",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "my.kimzam.wakeup",
-      "versionCode": 20901,
+      "versionCode": 21000,
       "adaptiveIcon": {
         "backgroundColor": "#0B2A8F",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -130,7 +130,7 @@
             {
               "name": "NextClass",
               "label": "Next class",
-              "description": "Your next class, with Join when it\u2019s online",
+              "description": "Your next class, with Join when it’s online",
               "minWidth": "110dp",
               "minHeight": "50dp",
               "targetCellWidth": 2,
@@ -158,7 +158,7 @@
             {
               "name": "TodayTimeline",
               "label": "Today",
-              "description": "Your day: classes, free time and what\u2019s due",
+              "description": "Your day: classes, free time and what’s due",
               "minWidth": "250dp",
               "minHeight": "250dp",
               "targetCellWidth": 4,
@@ -200,7 +200,7 @@
             {
               "name": "CoverScreen",
               "label": "WakeUp (cover screen)",
-              "description": "Your next class on the Flip\u2019s cover screen",
+              "description": "Your next class on the Flip’s cover screen",
               "minWidth": "352dp",
               "minHeight": "339dp",
               "widgetCategory": "keyguard",
