@@ -825,3 +825,23 @@ body.linkwin #linkbar { height: 40px; display: flex; align-items: center; gap: 2
 #setBtn .avatar.side { width: 1.4615rem; height: 1.4615rem; margin-left: auto; font-size: 0.7692rem; }
 body.compact #setBtn.has-av > svg, body.no-labels #setBtn.has-av > svg { display: none; }
 body.compact #setBtn .avatar.side, body.no-labels #setBtn .avatar.side { margin: 0; }
+
+/* ---- 2.9: tabs inside an app's pane ---- */
+.tabstrip { height: var(--tabh, 34px); flex: none; display: flex; align-items: stretch; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); background: var(--side); overflow-x: auto; scrollbar-width: none; }
+.tabstrip[hidden] { display: none; }
+.tabstrip .tab { position: relative; display: flex; align-items: center; min-width: 4.5rem; max-width: 13rem; flex: 0 1 13rem; border-radius: 6px 6px 0 0; color: var(--muted); }
+.tabstrip .tab:hover { background: var(--hover); }
+.tabstrip .tab.on { background: var(--bg); color: var(--text); box-shadow: 0 0 0 1px var(--line); clip-path: inset(-1px -1px 0 -1px); }
+.tabstrip .tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--bg); }
+.tabstrip .tab.on::before { content: ""; position: absolute; left: 8px; right: 8px; top: 0; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent); }
+.tabstrip .tab.asleep .tab-b { opacity: .7; }
+.tabstrip .tab-b { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: inherit; font: inherit; font-size: 0.8846rem; text-align: left; padding: 0 0.3rem 0 0.6923rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.tabstrip .tab.on .tab-b { font-weight: 550; }
+.tabstrip .tab-x, .tabstrip .tab-new { flex: none; width: 1.5385rem; height: 1.5385rem; align-self: center; display: grid; place-items: center; border: 0; border-radius: 5px; background: none; color: var(--faint); cursor: pointer; padding: 0; }
+.tabstrip .tab-x { margin-right: 4px; opacity: 0; }
+.tabstrip .tab:hover .tab-x, .tabstrip .tab.on .tab-x, .tabstrip .tab-x:focus-visible { opacity: 1; }
+.tabstrip .tab-x:hover, .tabstrip .tab-new:hover { background: var(--active); color: var(--text); }
+.tabstrip .tab-x svg, .tabstrip .tab-new svg { width: 0.9231rem; height: 0.9231rem; }
+.tabstrip .tab-new { margin-left: 2px; }
+body.pop .pop-tabs { position: fixed; left: 0; right: 0; top: 0; height: 34px; }
+body.pop.finding .pop-tabs { top: 40px; }

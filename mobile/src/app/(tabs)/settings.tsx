@@ -20,6 +20,7 @@ import { Avatar } from '../../ui/Avatar';
 const AI: [string, string, string][] = [
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
   ['Copilot', 'https://copilot.microsoft.com/', '#2b63d9'], ['Perplexity', 'https://www.perplexity.ai/', '#20808d'], ['DeepSeek', 'https://chat.deepseek.com/', '#4d6bfe'],
+  ['NotebookLM', 'https://notebooklm.google.com/', '#202124'],
 ];
 const ago = (iso: string | null) => { if (!iso) return 'not yet'; const m = Math.round((Date.now() - Date.parse(iso)) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
 
@@ -183,8 +184,11 @@ function AppsCard() {
         ))}
         {s.customApps.map((a) => (
           <View key={a.id}><Divider inset={16} />
-            <SetRow title={a.name} desc={`${a.ai ? 'AI · ' : ''}${safeHost(a.url)}`}>
+            <SetRow title={a.name} desc={`${a.ai ? 'AI · ' : ''}${safeHost(a.url)}${a.external ? ' · opens in Chrome' : ''}`}>
               <Button small kind="danger" label="Remove" onPress={() => remove(a)} />
+            </SetRow>
+            <SetRow title="Open in browser" desc="For sites that won’t let you sign in inside WakeUp, like Google’s (NotebookLM).">
+              <Switch label={`Open ${a.name} in the browser`} value={!!a.external} onChange={(on) => { if (on) closeApp(a.id); setSettings({ customApps: s.customApps.map((x) => (x.id === a.id ? { ...x, external: on } : x)) }); }} />
             </SetRow>
           </View>
         ))}

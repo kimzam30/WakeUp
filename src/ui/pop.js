@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, FindBar, PL:writable, WEEK_START:writable, LABEL_MODE:writable, plannerListeners, plannerUpdated, TasksView, TimetableView, $ */
+/* global hub, fillTabStrip, TABS, FindBar, PL:writable, WEEK_START:writable, LABEL_MODE:writable, plannerListeners, plannerUpdated, TasksView, TimetableView, $ */
 // A popped-out pane's window. For a web app the view fills it and this page only holds the find bar;
 // Timetable and Tasks are drawn right here.
 const id = new URLSearchParams(location.search).get('id');
@@ -19,7 +19,12 @@ if (id === 'tasks' || id === 'timetable') {
   });
   $('#popbar').remove();
 } else {
-  const bar = FindBar(id, document.getElementById('popbar'), (open) => { if (open) hub.findBar(id, true); });
+  const bar = FindBar(id, document.getElementById('popbar'), (open) => { document.body.classList.toggle('finding', open); if (open) hub.findBar(id, true); });
+  // the app's tabs sit just above the page (main moves the page down to make room)
+  const strip = document.createElement('div'); strip.className = 'tabstrip pop-tabs'; strip.hidden = true; document.body.append(strip);
+  const fill = () => fillTabStrip(strip, id, TABS[id]?.name || 'App');
+  hub.onTabs((info) => { if (info.id === id) { TABS[id] = info; fill(); } });
+  hub.tabs().then((list) => { const t = (list || []).find((x) => x.id === id); if (t) { TABS[id] = t; fill(); } });
   hub.onCmd(({ name, arg }) => { if (name === 'find' && arg === id) bar.open(); });
   hub.onFound((r) => { if (r.id === id) bar.found(r); });
 }

@@ -6,7 +6,8 @@ import type { WebApp } from '../lib/types';
 
 const DRAWN = ['ebwise', 'mail', 'calendar', 'teams'];
 const raster = (icon?: string | null) => !!icon && /^data:image\/(png|x-icon|vnd\.microsoft\.icon|jpeg|webp|gif);base64,/i.test(icon);
-export function AppTile({ app, size = 28 }: { app: WebApp; size?: number }) {
+export function AppTile({ app: tab, size = 28 }: { app: WebApp; size?: number }) {
+  const app = tab.tabOf ? { ...tab, id: tab.tabOf } : tab; // a second tab looks like its app
   const r = size * 0.28;
   if (!DRAWN.includes(app.id) && raster(app.icon)) {
     // a logo sits on a light tile so dark and transparent logos stay visible in dark mode

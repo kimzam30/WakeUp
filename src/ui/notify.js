@@ -17,7 +17,7 @@ function showNotice(n) {
   clearTimeout(prev?.timer);
   const next = { ...prev, ...n, id, ts: Date.now() };
   NOTICES.set(id, next);
-  if (NOTICE_LIFE[next.kind]) next.timer = setTimeout(() => dismissNotice(id), NOTICE_LIFE[next.kind]);
+  if (NOTICE_LIFE[next.kind] && !next.sticky) next.timer = // sticky ones wait for you (they ask you something) setTimeout(() => dismissNotice(id), NOTICE_LIFE[next.kind]);
   drawNotices();
   if (next.pane && BY[next.pane]) renderStatus(next.pane);
   return id;
@@ -51,7 +51,9 @@ function drawNotices() {
 
 // ---------- sources ----------
 // main: signing in, clipboard, import/export, anything else it wants you to know
-hub.onNotice?.((n) => { if (n.dismiss) dismissNotice(n.dismiss); else showNotice(n); });
+// notices from main can't carry functions: their actions say what to do instead
+const mainAction = (a) => (a.run ? a : { ...a, run: () => { if (a.settings) hub.setSettings(a.settings).then(applyPayload); if (a.close) closePane(a.close); if (a.open) hub.openLink(a.open); } });
+hub.onNotice?.((n) => { if (n.dismiss) dismissNotice(n.dismiss); else showNotice(n.actions ? { ...n, actions: n.actions.map(mainAction) } : n); });
 
 // downloads: progress while they run, then the result with what you can do next
 const dlSeen = new Map();

@@ -113,6 +113,7 @@ const Planner = require('./ui/planner-core.js');
 const Look = require('./ui/look-core.js');
 let SERVICES = []; let byId = {};
 let FILES = []; // open documents and screenshots: [{id, name, src, partition, from, ts}]
+const MAX_TABS = 8; // tabs per app pane
 const valid = (id) => typeof id === 'string' && Object.hasOwn(byId, id) && !byId[id].hidden;
 // Camera/mic/screen only for services flagged "media" in services.json (Teams).
 const MEDIA_HOSTS = [...new Set(BUILTIN.filter((s) => s.media && s.url).flatMap((s) => [new URL(s.url).hostname, ...(s.mediaHosts || [])]))];
@@ -135,7 +136,7 @@ function customHosts(url) {
 
 function rebuildServices(s) {
   const custom = s.customApps.map((c) => ({
-    id: c.id, name: c.name, url: c.url, color: c.color, icon: c.icon || null, custom: true, own: c.own,
+    id: c.id, name: c.name, url: c.url, color: c.color, icon: c.icon || null, custom: true, own: c.own, external: c.external === true,
     partition: c.own ? `persist:${c.id}` : 'persist:m365',
     hosts: customHosts(c.url),
   }));
@@ -184,7 +185,7 @@ function cleanCustomApps(list) {
     if (!id || seen.has(id)) id = `c-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'app'}-${Math.random().toString(36).slice(2, 6)}`;
     seen.add(id);
     const icon = Look.isIcon(c.icon) ? c.icon : null;
-    out.push({ id, name, url: u.href, color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#5e6ad2', own: c.own !== false, icon, ai: c.ai === true, mic: c.mic === true });
+    out.push({ id, name, url: u.href, color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#5e6ad2', own: c.own !== false, icon, ai: c.ai === true, mic: c.mic === true, external: c.external === true });
   }
   return out;
 }
@@ -343,6 +344,16 @@ const cleanDownloads = (list) => (Array.isArray(list) ? list : [])
     state: oneOf(d.state, ['completed', 'cancelled', 'interrupted'], 'completed'), ts: num(d.ts, 0, 1e14, 0),
   }));
 
+function cleanTabs(raw) { // { appId: { active, list: [{url, title}] } }; apps that no longer exist are skipped when panes open
+  const out = {};
+  for (const [id, v] of Object.entries(isObj(raw) ? raw : {})) {
+    if (!/^[a-z0-9-]{1,48}$/.test(id) || !isObj(v) || !Array.isArray(v.list)) continue;
+    const list = v.list.filter((t) => isObj(t) && safeUrl(t.url)?.protocol === 'https:').slice(0, MAX_TABS).map((t) => ({ url: safeUrl(t.url).href, title: text(t.title, 200) }));
+    if (list.length < 2) continue;
+    out[id] = { list, active: Math.min(list.length - 1, Math.max(0, Math.round(num(v.active, 0, MAX_TABS, 0)))) };
+  }
+  return out;
+}
 function loadState() {
   for (const file of [STATE_FILE, STATE_FILE + '.bak']) {
     try {
@@ -366,6 +377,7 @@ function loadState() {
       s.downloads = cleanDownloads(raw.downloads);
       s.shots = cleanShots(raw.shots);
       s.planner = cleanPlanner(raw.planner);
+      s.tabs = cleanTabs(raw.tabs);
       s.files = FILES;
       for (const k of ['layout', 'slots', 'sizes', 'maximized', 'closeToTray', 'sleepMinutes', 'last']) delete s[k]; // older formats
       if (file === STATE_FILE) fs.copyFileSync(file, file + '.bak');
@@ -466,7 +478,7 @@ if (process.env.WAKEUP_PROFILE) global.wakeupDebug = { panes, state }; // test p
 const send = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
 // settings changes also reach popped-out Timetable/Tasks windows (week start, nickname)
 const sendSettings = () => { const p = settingsPayload(); for (const w of shellWindows()) w.webContents.send('settings', p); return p; };
-const paneIdOf = (wc) => { for (const [id, p] of panes) if (p.view?.webContents === wc) return id; return null; };
+const paneIdOf = (wc) => { for (const [id, p] of panes) if (p.view?.webContents === wc || p.tabs?.some((t) => t.view?.webContents === wc)) return id; return null; };
 const paneWc = (id) => { const wc = panes.get(id)?.view?.webContents; return wc && !wc.isDestroyed() ? wc : null; };
 
 // ---- sessions: permissions, screen share, UA, downloads
@@ -750,14 +762,32 @@ function dockLink(token, how = 'beside') {
   return id;
 }
 
+// Google refuses sign-in inside embedded browsers, and WakeUp doesn't try to get around that. When one of your own
+// apps (NotebookLM, say) goes to Google's sign-in, say so once and offer to open that app in your browser from now on.
+const googleHinted = new Set();
+function googleHint(id, url) {
+  if (!hostIn(url, ['accounts.google.com']) || googleHinted.has(id)) return;
+  const c = state.settings.customApps.find((x) => x.id === id); if (!c) return;
+  googleHinted.add(id);
+  send('notice', {
+    id: `google:${id}`, kind: 'info', sticky: true, title: `Google may not let you sign in to ${c.name} here`,
+    detail: 'If Google says this browser or app may not be secure, open it in your browser instead. Signing in with an email and password (not “Continue with Google”) usually works inside WakeUp.',
+    actions: [{ label: 'Always open in my browser', settings: { customApps: state.settings.customApps.map((x) => (x.id === id ? { ...x, external: true } : x)) }, open: c.url, close: id }],
+  });
+}
+
 // window.open / target=_blank from a pane or one of its windows
 function routeOpen(svc, { url, disposition }) {
   const deny = { action: 'deny' };
   if (url.startsWith('mailto:')) { composeMail(url); return deny; }
   if (isTeamsLink(url) && svc.id !== 'teams' && openInPane('teams', url)) return deny;
-  if (disposition === 'background-tab') { openOut(url); return deny; } // Ctrl+click / middle-click
+  if (disposition === 'background-tab' || disposition === 'foreground-tab') { // Ctrl+click / middle-click (Ctrl+Shift: switch to it)
+    const target = tabTarget(svc);
+    if (target && tabbable(target, url) && newTab(target, url, { focus: disposition === 'foreground-tab' })) return deny;
+    openOut(url); return deny;
+  }
   const allow = (o = {}) => ({ action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: ICON, backgroundColor: BG(), ...o, webPreferences: linkPrefs(svc) } });
-  if (isAuth(url)) return allow({ width: 520, height: 720 });
+  if (isAuth(url)) { if (svc.custom) googleHint(svc.id, url); return allow({ width: 520, height: 720 }); }
   // scripted popups (compose, sign-in) keep their opener; custom apps may sign in through any provider
   if (url === 'about:blank' || url === '' || (disposition === 'new-window' && (svc.custom || isInternal(url, svc)))) return allow();
   if (isInternal(url, svc)) {
@@ -798,6 +828,8 @@ function contextMenu(wc, p, svc) {
     sep();
   }
   if (isHttp(p.linkURL)) {
+    const target = tabTarget(svc);
+    if (target && tabbable(target, p.linkURL)) items.push({ label: 'Open link in new tab', click: () => newTab(target, p.linkURL, { focus: false }) });
     items.push(
       { label: 'Open link in browser', click: () => openOut(p.linkURL) },
       { label: `Open link in ${APP} window`, click: () => openLinkWindow(p.linkURL, svc) },
@@ -838,9 +870,113 @@ function contextMenu(wc, p, svc) {
 
 // ---- pane status: loading / ready / error / crashed / hung / sleeping
 const pane = (id) => {
-  if (!panes.has(id)) panes.set(id, { view: null, status: 'new', url: null, hiddenSince: null, retries: 0, retryTimer: null, popWin: null, unread: 0, findOpen: false });
+  if (!panes.has(id)) {
+    const p = { view: null, status: 'new', url: null, hiddenSince: null, retries: 0, retryTimer: null, popWin: null, unread: 0, findOpen: false, tabs: null, tab: 0, title: '' };
+    const saved = state.tabs?.[id]; // tabs from last time come back asleep; each loads when you click it
+    if (saved && byId[id]?.kind === 'web') {
+      p.tabs = saved.list.map((t) => ({ view: null, url: t.url, title: t.title }));
+      p.tab = Math.min(saved.active, p.tabs.length - 1); p.url = p.tabs[p.tab].url; p.title = p.tabs[p.tab].title;
+    }
+    panes.set(id, p);
+  }
   return panes.get(id);
 };
+
+// ---- tabs: a web app's pane can hold several pages, all with the app's sign-in (one partition). The active
+// tab lives in p.view / p.url / p.title like a pane without tabs; p.tabs[p.tab] is only its placeholder.
+// Other tabs keep their own view (or sleep with just a url). Remembered across restarts in state.tabs.
+const TABSTRIP = 34; // px, the strip under a pane's header (ui.css .tabstrip)
+const liveUrl = (v) => (v && !v.webContents.isDestroyed() ? v.webContents.getURL() : '') || '';
+const tabsInfo = (id) => {
+  const p = panes.get(id);
+  if (!p?.tabs || p.tabs.length < 2) return { id, tabs: [], active: 0 };
+  return { id, name: byId[id]?.name || '', active: p.tab, tabs: p.tabs.map((t, i) => (i === p.tab ? { title: p.title || byId[id]?.name || '', url: liveUrl(p.view) || p.url || '' } : { title: t.title || '', url: liveUrl(t.view) || t.url || '', asleep: !t.view })) };
+};
+function sendTabs(id) {
+  const info = tabsInfo(id);
+  for (const w of shellWindows()) w.webContents.send('tabs', info);
+  if (panes.get(id)?.popWin) fitPop(id);
+  saveTabsSoon();
+}
+let tabsTimer = null;
+function saveTabs() {
+  clearTimeout(tabsTimer); tabsTimer = null;
+  const out = {};
+  for (const [id, p] of panes) {
+    if (!p.tabs || p.tabs.length < 2) continue;
+    out[id] = { active: p.tab, list: tabsInfo(id).tabs.map((t) => ({ url: t.url, title: t.title.slice(0, 200) })) };
+  }
+  state.tabs = out; saveState();
+}
+const saveTabsSoon = () => { clearTimeout(tabsTimer); tabsTimer = setTimeout(saveTabs, 1500); };
+// the pane a link should open a tab in: the app itself, or the app a document came from
+const tabTarget = (svc) => { const id = svc.kind === 'file' ? svc.from : svc.id; return id && byId[id]?.kind === 'web' ? id : null; };
+// a link that may open in a tab of this app (others still go to the browser or a WakeUp window, as before)
+const tabbable = (id, url) => isHttp(url) && safeUrl(url)?.protocol === 'https:' && (byId[id].custom || isInternal(url, byId[id]) || isAuth(url));
+function newTab(id, url = '', { focus = true } = {}) {
+  if (!valid(id) || byId[id]?.kind !== 'web') return false;
+  const p = pane(id);
+  if (!p.tabs) p.tabs = [{ view: null, url: null, title: '' }];
+  if (p.tabs.length >= MAX_TABS) { send('notice', { id: `tabs-${id}`, kind: 'info', title: `${byId[id].name} has ${MAX_TABS} tabs`, detail: 'Close one to open another.' }); return false; }
+  const at = p.tab + 1;
+  p.tabs.splice(at, 0, { view: null, url: url || byId[id].url, title: '' });
+  if (focus) switchTab(id, at, { force: true }); else sendTabs(id);
+  send('cmd', { name: 'open', arg: id }); // make sure the pane is on screen
+  return true;
+}
+function showActive(id) { // put the active tab's view where the pane is
+  const p = panes.get(id); if (!p) return;
+  if (p.popWin && !p.popWin.isDestroyed()) {
+    const v = wake(id); if (!v) return;
+    v.setBorderRadius?.(0);
+    if (!p.popWin.contentView.children.includes(v)) p.popWin.contentView.addChildView(v);
+    fitPop(id); v.setVisible(true); v.webContents.focus();
+  } else { lastOrder = ''; applyBounds(); const v = p.view; if (v && !v.webContents.isDestroyed() && win?.isFocused()) v.webContents.focus(); }
+}
+function switchTab(id, i, { force = false } = {}) {
+  const p = panes.get(id); if (!p?.tabs || !p.tabs[i] || (i === p.tab && !force)) return;
+  if (i !== p.tab) {
+    const cur = p.tabs[p.tab];
+    cur.view = p.view && !p.view.webContents.isDestroyed() ? p.view : null;
+    cur.url = liveUrl(cur.view) || p.url; cur.title = p.title; cur.hiddenSince = Date.now(); cur.status = p.status;
+    if (cur.view) { detach(cur.view); cur.view.setVisible(false); cur.view.webContents.stopFindInPage?.('clearSelection'); }
+    const t = p.tabs[i];
+    p.tab = i; p.view = t.view && !t.view.webContents.isDestroyed() ? t.view : null; p.url = t.url; p.title = t.title;
+    const st = t.status; t.view = null; t.hiddenSince = null; t.status = null;
+    if (p.unread) { p.unread = 0; updateBadge(); send('unread', { id, n: 0 }); }
+    if (p.view) setStatus(id, p.view.webContents.isLoading() ? 'loading' : st === 'error' ? 'error' : 'ready');
+    else setStatus(id, 'sleeping');
+  }
+  showActive(id);
+  sendTabs(id);
+}
+function closeTab(id, i) {
+  const p = panes.get(id); if (!p?.tabs || p.tabs.length < 2 || !p.tabs[i]) return false;
+  if (i === p.tab) switchTab(id, i < p.tabs.length - 1 ? i + 1 : i - 1);
+  const t = p.tabs[i];
+  if (t.view && !t.view.webContents.isDestroyed()) { detach(t.view); t.view.webContents.close(); }
+  p.tabs.splice(i, 1);
+  if (p.tab > i) p.tab--;
+  if (p.tabs.length === 1) { p.tabs = null; p.tab = 0; }
+  sendTabs(id);
+  return true;
+}
+function moveTab(id, from, to) {
+  const p = panes.get(id); if (!p?.tabs || !p.tabs[from] || to < 0 || to >= p.tabs.length || from === to) return;
+  const activeEntry = p.tabs[p.tab];
+  const [t] = p.tabs.splice(from, 1); p.tabs.splice(to, 0, t);
+  p.tab = p.tabs.indexOf(activeEntry);
+  sendTabs(id);
+}
+ipcMain.on('tab', (_e, { id, action, arg } = {}) => {
+  if (typeof id !== 'string' || !panes.has(id) && action !== 'new') return;
+  const n = Number(arg);
+  if (action === 'new') newTab(id);
+  else if (action === 'switch' && Number.isInteger(n)) switchTab(id, n);
+  else if (action === 'close' && Number.isInteger(n)) closeTab(id, n);
+  else if (action === 'move' && Array.isArray(arg)) moveTab(id, Number(arg[0]), Number(arg[1]));
+});
+ipcMain.handle('tabs', () => [...panes.keys()].map(tabsInfo).filter((t) => t.tabs.length));
 function setStatus(id, status, extra = {}) {
   const p = panes.get(id); if (!p) return;
   p.status = status;
@@ -918,25 +1054,34 @@ function createView(id) {
   view.setBackgroundColor(BG());
   const wc = view.webContents;
   guard(wc, svc);
+  // with tabs, this view may stop being the active one: only the active tab reports status to the pane
+  const active = () => p.view === view;
+  const entry = () => p.tabs?.find((t) => t.view === view);
   wc.on('page-title-updated', (_e, title) => {
     if (svc.kind === 'file') { if (!svc.local) renameFile(id, title); return; }
+    if (active()) p.title = title; else { const t = entry(); if (t) t.title = title; }
+    if (p.tabs) sendTabs(id);
+    if (!active()) return;
     const m = title.match(/^\((\d+)\)|\((\d+)\)\s*$|^(\d+)\s+unread/i);
     const n = m ? Number(m[1] || m[2] || m[3]) : 0;
     if (n !== p.unread) { p.unread = n; updateBadge(); send('unread', { id, n }); }
   });
   if (svc.custom && !svc.icon) wc.on('page-favicon-updated', (_e, favs) => { const c = state.settings.customApps.find((x) => x.id === id); if (c && !c.icon && !favTried.has(id)) { favTried.add(id); if (state.iconChecked) delete state.iconChecked[id]; findIcon(c, favs); } });
-  wc.on('did-start-loading', () => { if (p.status !== 'error') setStatus(id, 'loading'); });
-  wc.on('did-stop-loading', () => { if (p.status === 'loading') setStatus(id, 'ready'); });
-  wc.on('did-navigate', (_e, url) => { p.url = url; });
-  wc.on('did-navigate-in-page', (_e, url, isMain) => { if (isMain) p.url = url; });
+  const setUrl = (url) => { if (active()) p.url = url; else { const t = entry(); if (t) t.url = url; } if (p.tabs) saveTabsSoon(); };
+  wc.on('did-start-loading', () => { if (active() && p.status !== 'error') setStatus(id, 'loading'); });
+  wc.on('did-stop-loading', () => { if (active() && p.status === 'loading') setStatus(id, 'ready'); });
+  wc.on('did-navigate', (_e, url) => { setUrl(url); if (svc.custom) googleHint(id, url); });
+  wc.on('did-navigate-in-page', (_e, url, isMain) => { if (isMain) setUrl(url); });
   wc.on('did-finish-load', () => {
     signInAgain(id, wc);
     if (state.settings.zoom !== 100) wc.setZoomFactor(state.settings.zoom / 100);
+    if (!active()) return;
     if (p.status === 'error') return; // Chromium's error page finished; only retry() clears an error
     p.retries = 0; clearTimeout(p.retryTimer); setStatus(id, 'ready');
   });
   wc.on('did-fail-load', (_e, code, desc, url, isMain) => {
     if (!isMain || code === -3) return; // -3 = aborted by a newer navigation, not a real failure
+    if (!active()) { const t = entry(); if (t) t.status = 'error'; return; }
     if (url && !url.startsWith('chrome-error:')) p.url = url;
     log(`${id} failed to load (${code} ${desc})`);
     setStatus(id, 'error', { code, desc, retryIn: scheduleRetry(id) });
@@ -944,12 +1089,13 @@ function createView(id) {
   wc.on('render-process-gone', (_e, d) => {
     if (d.reason === 'clean-exit') return;
     log(`${id} renderer gone: ${d.reason} (${d.exitCode})`);
+    if (!active()) { const t = entry(); if (t) { t.view = null; view.webContents.close(); } return; } // reloads when you open that tab
     // reload by itself once a minute at most; a page that keeps crashing waits for the Reload button
     if (Date.now() - (p.crashedAt || 0) > 60e3) { p.crashedAt = Date.now(); setTimeout(() => retry(id), 500); return; }
     setStatus(id, 'crashed', { reason: d.reason });
   });
-  wc.on('unresponsive', () => setStatus(id, 'hung'));
-  wc.on('responsive', () => { if (p.status === 'hung') setStatus(id, 'ready'); });
+  wc.on('unresponsive', () => { if (active()) setStatus(id, 'hung'); });
+  wc.on('responsive', () => { if (active() && p.status === 'hung') setStatus(id, 'ready'); });
   wc.on('found-in-page', (_e, r) => {
     if (!r.finalUpdate) return;
     const host = p.popWin && !p.popWin.isDestroyed() ? p.popWin.webContents : win?.webContents;
@@ -986,7 +1132,10 @@ function closePane(id) {
   clearTimeout(p.retryTimer);
   if (p.popWin && !p.popWin.isDestroyed()) { const w = p.popWin; p.popWin = null; w.destroy(); }
   destroyView(p);
+  for (const t of p.tabs || []) if (t.view && !t.view.webContents.isDestroyed()) { detach(t.view); t.view.webContents.close(); }
+  const hadTabs = !!p.tabs;
   panes.delete(id);
+  if (hadTabs) { for (const w of shellWindows()) w.webContents.send('tabs', { id, tabs: [], active: 0 }); saveTabs(); }
   updateBadge();
 }
 
@@ -1001,6 +1150,12 @@ setInterval(() => {
   if (!mins) return;
   if (!windowShown()) markHiddenWindow(); // minimise state can lag behind its event on Wayland
   const cutoff = Date.now() - mins * 60e3;
+  for (const [id, p] of panes) { // tabs you aren't looking at sleep after the same time (keep-running apps' too: they only need one page awake)
+    for (const t of p.tabs || []) {
+      if (!t.view || !t.hiddenSince || t.hiddenSince > cutoff || t.view.webContents.isDestroyed() || t.view.webContents.isCurrentlyAudible()) continue;
+      t.url = liveUrl(t.view) || t.url; t.view.webContents.close(); t.view = null; sendTabs(id);
+    }
+  }
   for (const [id, p] of panes) {
     if (!p.view || p.popWin || byId[id]?.keepAlive || !p.hiddenSince || p.hiddenSince > cutoff) continue;
     if (p.view.webContents.isCurrentlyAudible()) continue;
@@ -1048,7 +1203,7 @@ const FINDBAR = 40;
 function fitPop(id) {
   const p = panes.get(id); const w = p?.popWin;
   if (!w || w.isDestroyed() || !p.view) return;
-  const [cw, ch] = w.getContentSize(); const top = p.findOpen ? FINDBAR : 0;
+  const [cw, ch] = w.getContentSize(); const top = (p.findOpen ? FINDBAR : 0) + (p.tabs?.length > 1 ? TABSTRIP : 0);
   p.view.setBounds({ x: 0, y: top, width: cw, height: Math.max(0, ch - top) });
 }
 function popOut(id) {
@@ -1114,7 +1269,11 @@ function handleShortcut(input, fromId) {
   if (!input.shift) {
     const apps = shownServices();
     if (/^[1-9]$/.test(k) && apps[Number(k) - 1]) { showWindow(); return cmd('open', apps[Number(k) - 1].id); }
+    const tabPane = fromId || state.focused;
+    if (k === 'w' && panes.get(tabPane)?.tabs?.length > 1) { closeTab(tabPane, panes.get(tabPane).tab); return true; } // a tab first, then the pane
     if (k === 'w') return cmd('close', popped ? fromId : undefined);
+    if (k === 't' && tabPane && byId[tabPane]?.kind === 'web') { newTab(tabPane); return true; }
+    if ((k === 'pagedown' || k === 'pageup') && panes.get(tabPane)?.tabs?.length > 1) { const q = panes.get(tabPane); switchTab(tabPane, (q.tab + (k === 'pagedown' ? 1 : -1) + q.tabs.length) % q.tabs.length); return true; }
     if (k === 'm' && !popped) return cmd('zoom');
     if (k === 'r') { retryOrReload(fromId || state.focused); return true; }
     if (k === 'f') {
@@ -1590,7 +1749,7 @@ app.on('second-instance', (_e, argv) => {
   if (id === 'settings') send('cmd', { name: 'settings' });
   else if (valid(id)) send('cmd', { name: 'open', arg: id });
 });
-app.on('before-quit', () => { quitting = true; writeState(); });
+app.on('before-quit', () => { quitting = true; saveTabs(); writeState(); });
 // Sign-ins live in cookies, which Chromium writes to disk lazily. Save them soon after they change, so a crash,
 // a logout or a system shutdown doesn't sign you out of Ebwise or Microsoft 365.
 app.on('session-created', (ses) => {

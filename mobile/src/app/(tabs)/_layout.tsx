@@ -13,7 +13,7 @@ import { Avatar } from '../../ui/Avatar';
 import { Logo } from '../../ui/Logo';
 import { useLayout } from '../../ui/kit';
 import { R, S, T, useTheme } from '../../ui/theme';
-import { allApps, focusedApp, kv, openApp, openSplit, useStore } from '../../lib/store';
+import { allApps, baseOf, focusedApp, kv, openApp, openSplit, useStore } from '../../lib/store';
 import { useToday } from '../../lib/hooks';
 
 const TABS: [string, string, string][] = [['index', 'Today', 'home'], ['timetable', 'Timetable', 'cal'], ['tasks', 'Tasks', 'tasks'], ['apps', 'Apps', 'apps'], ['settings', 'Settings', 'settings']];
@@ -126,8 +126,8 @@ function SideBar({ state, navigateToTab }: BarProps) {
           </Pressable>
         ) : <View style={{ height: 1, backgroundColor: c.line, marginVertical: S(2), marginHorizontal: S(2) }} />}
         {apps.length ? apps.map((a) => {
-          const on = route === 'apps' && shown.split(' ').includes(a.id);
-          return item(a.id, a.name, <AppTile app={a} size={labels ? 24 : 30} />, on, () => openOne(a.id), 0, on && focused !== a.id, apps.length > 1 ? () => split(a.id) : undefined);
+          const on = route === 'apps' && shown.split(' ').map(baseOf).includes(a.id); // its tabs count as the app
+          return item(a.id, a.name, <AppTile app={a} size={labels ? 24 : 30} />, on, () => openOne(a.id), 0, on && (focused ? baseOf(focused) : null) !== a.id, apps.length > 1 ? () => split(a.id) : undefined);
         }) : page('apps', 'Apps', 'apps')}
       </ScrollView>
       <View style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: S(2) }}>

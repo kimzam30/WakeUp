@@ -150,3 +150,34 @@ function applyAccent(id = ACCENT_ID) {
   st.setProperty('--accent', a.accent); st.setProperty('--accent-text', a.accentText); st.setProperty('--accent-soft', a.accentSoft);
 }
 darkScheme.addEventListener('change', () => applyAccent());
+
+// ---------- tabs: the strip under a pane's header (main window) or at the top of a pop-out ----------
+const TABS = {}; // pane id -> { tabs: [{title, url, asleep}], active }
+const hasTabs = (id) => (TABS[id]?.tabs.length || 0) > 1;
+const tabLabel = (t, fallback) => { const v = (t.title || '').trim(); return v && !/^https?:/.test(v) ? v : (() => { try { return new URL(t.url).hostname.replace(/^www\./, ''); } catch { return fallback; } })(); };
+// Fills `el` with the tabs of pane `id`; clicks go to main. Middle-click closes a tab, like a browser.
+function fillTabStrip(el, id, name) {
+  const info = TABS[id];
+  el.hidden = !hasTabs(id);
+  if (el.hidden) { el.replaceChildren(); return; }
+  el.setAttribute('role', 'tablist'); el.setAttribute('aria-label', `${name} tabs`);
+  el.innerHTML = info.tabs.map((t, i) => {
+    const label = tabLabel(t, name);
+    return `<div class="tab${i === info.active ? ' on' : ''}${t.asleep ? ' asleep' : ''}" data-i="${i}"><button class="tab-b" role="tab" aria-selected="${i === info.active}" title="${esc(label)}" data-i="${i}">${esc(label)}</button><button class="tab-x" aria-label="Close tab ${esc(label)}" title="Close tab (Ctrl+W)" data-x="${i}">${btnSvg('close')}</button></div>`;
+  }).join('') + `<button class="tab-new" aria-label="New ${esc(name)} tab" title="New tab (Ctrl+T)">${btnSvg('plus')}</button>`;
+  if (el._wired) return;
+  el._wired = true;
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  el.addEventListener('click', (e) => {
+    const x = e.target.closest('[data-x]'); const b = e.target.closest('[data-i]');
+    if (x) hub.tab(id, 'close', Number(x.dataset.x));
+    else if (e.target.closest('.tab-new')) hub.tab(id, 'new');
+    else if (b) hub.tab(id, 'switch', Number(b.dataset.i));
+  });
+  el.addEventListener('auxclick', (e) => { const b = e.target.closest('[data-i]'); if (e.button === 1 && b) { e.preventDefault(); hub.tab(id, 'close', Number(b.dataset.i)); } });
+  el.addEventListener('keydown', (e) => { // arrow keys move between tabs
+    const b = e.target.closest('.tab-b'); if (!b || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const all = [...el.querySelectorAll('.tab-b')]; const j = all.indexOf(b) + (e.key === 'ArrowRight' ? 1 : -1);
+    all[(j + all.length) % all.length]?.focus(); e.preventDefault();
+  });
+}

@@ -12,7 +12,7 @@ import { Button, Empty, IconButton, Sheet, Txt, useLayout } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
 import { AppTile as Glyph } from '../../ui/AppTile';
 import { R, S, useTheme } from '../../ui/theme';
-import { allApps, closeApp, closeSplit, focusedApp, openApp, openSplit, updateSplit, useStore } from '../../lib/store';
+import { allApps, baseOf, closeApp, closeSplit, closeTab, focusedApp, getState, newTab, openApp, openSplit, setSettings, setTabUrl, updateSplit, useStore, withTabs } from '../../lib/store';
 import type { WebApp } from '../../lib/types';
 
 // Teams' web app only runs with a desktop browser signature; on a tablet every app gets the full desktop site.
@@ -28,8 +28,12 @@ let googleAsked = 0;
 function googleBlocked(app: WebApp) {
   if (Date.now() - googleAsked < 3000) return; // one page can try several times in a row
   googleAsked = Date.now();
+  const custom = getState().settings.customApps.find((a) => a.id === baseOf(app.id));
   Alert.alert('Use email to sign in', `Google doesn’t allow signing in from inside other apps. In ${app.name}, choose to continue with your email instead, or use ${app.name} in your browser.`,
-    [{ text: 'Open in browser', onPress: () => openOutside(app.url) }, { text: 'OK', style: 'cancel' }]);
+    custom ? [ // your own app (NotebookLM, say): offer to always open it in Chrome from now on
+      { text: 'Always open in browser', onPress: () => { const s = getState().settings; setSettings({ customApps: s.customApps.map((a) => (a.id === custom.id ? { ...a, external: true } : a)) }); closeApp(app.id); openApp(custom.id); } },
+      { text: 'Open in browser', onPress: () => openOutside(app.url) }, { text: 'OK', style: 'cancel' },
+    ] : [{ text: 'Open in browser', onPress: () => openOutside(app.url) }, { text: 'OK', style: 'cancel' }]);
 }
 
 export default function Apps() {
@@ -42,6 +46,8 @@ export default function Apps() {
   const split = useStore((s) => s.split);
   const focused = useStore(focusedApp);
   const apps = useMemo(() => allApps(settings), [settings]);
+  const tabs = useStore((s) => s.tabs);
+  const all = useMemo(() => withTabs(apps, tabs), [apps, tabs]); // apps and their extra tabs
   const refs = useRef<Record<string, ComponentRef<typeof WebView> | null>>({});
   const navRef = useRef<Record<string, Nav>>({});
   const [, bump] = useState(0); // toolbar re-renders when the focused page's nav state changes
@@ -50,15 +56,16 @@ export default function Apps() {
   const [area, setArea] = useState({ w: 0, h: 0 });
   const canSplit = size !== 'cover' && apps.length > 1;
   const shown = split && canSplit ? [split.a, split.b] : active ? [active] : [];
+  const shownBase = shown.map(baseOf);
   const vertical = area.h > area.w; // portrait window: stack the halves
 
   // a split saved on a tablet doesn't survive the cover screen; apps that were hidden or removed close
   useEffect(() => { if (split && !canSplit) closeSplit(); }, [split, canSplit]);
   useEffect(() => {
-    const ids = new Set(apps.map((a) => a.id));
+    const ids = new Set(all.map((a) => a.id));
     for (const id of openIds) if (!ids.has(id)) closeApp(id);
     if (active && !ids.has(active)) openApp(null);
-  }, [apps, openIds, active]);
+  }, [all, openIds, active]);
 
   // Android back: go back in the focused page, then leave split, then leave the app, then the system's turn
   useFocusEffect(useCallback(() => {
@@ -74,20 +81,24 @@ export default function Apps() {
   const onNav = useCallback((id: string, e: WebViewNavigation) => {
     const prev = navRef.current[id];
     navRef.current[id] = { canGoBack: e.canGoBack, loading: e.loading, url: e.url, title: e.title };
+    if (id.includes('~') && !e.loading) setTabUrl(id, e.url);
     if (!prev || prev.title !== e.title) setTitles((t) => ({ ...t, [id]: e.title }));
     if (!prev || prev.loading !== e.loading || prev.title !== e.title || prev.canGoBack !== e.canGoBack) bump((x) => x + 1);
   }, []);
   const setRef = useCallback((id: string, r: ComponentRef<typeof WebView> | null) => { refs.current[id] = r; }, []);
-  const app = apps.find((a) => a.id === focused);
+  const app = all.find((a) => a.id === focused);
+  const base = app ? baseOf(app.id) : null;
+  const tabList = base && tabs[base]?.length ? [base, ...tabs[base].map((t) => t.id)] : [];
+  const tabLabel = (id: string, i: number) => { const t = titles[id]; return t && !/^https?:/.test(t) ? t : i ? `${app!.name} ${i + 1}` : app!.name; };
 
   const switcher = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: S(2), paddingHorizontal: S(3), alignItems: 'center' }}>
       {apps.map((a) => {
-        const on = shown.includes(a.id);
+        const on = shownBase.includes(a.id);
         return (
           <Pressable key={a.id} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={a.name} accessibilityHint={canSplit ? 'Long-press to open beside the current app' : undefined}
             onPress={() => openApp(a.id)} onLongPress={() => { if (canSplit && focused && a.id !== focused) { haptic('tap'); openSplit(a.id); } }}
-            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), height: 40, paddingLeft: 6, paddingRight: size === 'compact' && !on ? 6 : S(3), borderRadius: R.pill, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent', borderWidth: 1, borderColor: a.id === focused && split ? c.accent : on ? c.accent : c.line })}>
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S(2), height: 40, paddingLeft: 6, paddingRight: size === 'compact' && !on ? 6 : S(3), borderRadius: R.pill, backgroundColor: on ? c.accentSoft : pressed ? c.hover : 'transparent', borderWidth: 1, borderColor: a.id === base && split ? c.accent : on ? c.accent : c.line })}>
             <Glyph app={a} size={28} />
             {size !== 'compact' || on ? <Txt kind="small" style={{ fontWeight: '600', color: on ? c.text : c.muted }}>{a.name}</Txt> : null}
           </Pressable>
@@ -128,11 +139,29 @@ export default function Apps() {
         {app ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
           {size !== 'compact' ? <IconButton icon="back" label="Back" onPress={() => refs.current[app.id]?.goBack()} /> : null}
           <IconButton icon="reload" label="Reload" onPress={() => refs.current[app.id]?.reload()} />
+          {!split || size !== 'compact' ? <IconButton icon="plus" label={`New ${app.name} tab`} onPress={() => { haptic('tap'); newTab(base!); }} /> : null}
           {canSplit ? <IconButton icon="split" label={split ? 'Close split' : 'Split with another app'} onPress={() => (split ? closeSplit() : setPicker(true))} /> : null}
           {size !== 'compact' || !split ? <IconButton icon="external" label="Open in browser" onPress={() => openOutside(navRef.current[app.id]?.url || app.url)} /> : null}
           <IconButton icon="close" label={`Close ${app.name}`} onPress={() => closeApp(app.id)} />
         </View> : null}
       </View>
+      {tabList.length ? (
+        // the focused app's tabs, like a browser's. Its own page is the first; the others can be closed.
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderColor: c.line }} contentContainerStyle={{ gap: S(1), paddingHorizontal: S(2), paddingVertical: S(1), alignItems: 'center' }}>
+          {tabList.map((id, i) => {
+            const on = id === focused;
+            return (
+              <View key={id} style={{ flexDirection: 'row', alignItems: 'center', height: 36, maxWidth: 220, borderRadius: R.input, backgroundColor: on ? c.bg : 'transparent', borderWidth: 1, borderColor: on ? c.lineStrong : 'transparent' }}>
+                <Pressable accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => openApp(id)} style={{ paddingLeft: S(3), paddingRight: i ? S(1) : S(3), height: '100%', justifyContent: 'center', flexShrink: 1 }}>
+                  <Txt kind="small" numberOfLines={1} style={{ fontWeight: on ? '600' : '500', color: on ? c.text : c.muted }}>{tabLabel(id, i)}</Txt>
+                </Pressable>
+                {i ? <Pressable accessibilityRole="button" accessibilityLabel={`Close tab ${tabLabel(id, i)}`} hitSlop={6} onPress={() => closeTab(id)} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', marginRight: 2 }}><Icon name="close" size={14} color={c.faint} /></Pressable> : null}
+              </View>
+            );
+          })}
+          <Pressable accessibilityRole="button" accessibilityLabel={`New ${app!.name} tab`} hitSlop={6} onPress={() => newTab(base!)} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: R.input, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? c.hover : 'transparent' })}><Icon name="plus" size={16} color={c.muted} /></Pressable>
+        </ScrollView>
+      ) : null}
       <View style={{ flex: 1, backgroundColor: c.line }} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         {!shown.length ? (
           <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ padding: S(5), gap: S(4) }}>
@@ -150,13 +179,13 @@ export default function Apps() {
           </ScrollView>
         ) : null}
         {openIds.map((id) => {
-          const a = apps.find((x) => x.id === id); if (!a) return null;
+          const a = all.find((x) => x.id === id); if (!a) return null;
           const inSplit = !!split && shown.length > 1 && shown.includes(id);
           return (
             <View key={id} style={place(id)} pointerEvents={shown.includes(id) ? 'auto' : 'none'}>
               {inSplit ? <PaneStrip app={a} focused={focused === id} onFocus={() => openApp(id)}
                 onSwap={() => updateSplit({ a: split!.b, b: split!.a })} onMax={() => closeSplit(split!.a === id ? 'a' : 'b')} onClose={() => closeApp(id)} /> : null}
-              <Pane app={a} desktop={a.id === 'teams' || wide} onNav={onNav} setRef={setRef} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
+              <Pane app={a} desktop={baseOf(a.id) === 'teams' || wide} onNav={onNav} setRef={setRef} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
               {navRef.current[id]?.loading ? <View style={{ position: 'absolute', top: inSplit ? STRIP : 0, left: 0, right: 0, height: 2, backgroundColor: c.accent, opacity: 0.6 }} /> : null}
             </View>
           );

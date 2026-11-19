@@ -83,7 +83,7 @@ hub.sync?.('status').then((st) => { if (st) { SYNC = st; paintSideAvatar(); } })
 const AI_PRESETS = [ // a starting point; any AI that works in a browser can be added with 'Other'
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
   ['Copilot', 'https://copilot.microsoft.com/', '#2b63d9'], ['Perplexity', 'https://www.perplexity.ai/', '#20808d'], ['DeepSeek', 'https://chat.deepseek.com/', '#4d6bfe'],
-  ['Grok', 'https://grok.com/', '#1f1f1e'], ['Le Chat', 'https://chat.mistral.ai/', '#fa520f'],
+  ['Grok', 'https://grok.com/', '#1f1f1e'], ['Le Chat', 'https://chat.mistral.ai/', '#fa520f'], ['NotebookLM', 'https://notebooklm.google.com/', '#202124'],
 ];
 const nextName = (base) => { const names = new Set(SET.customApps.map((c) => c.name)); if (!names.has(base)) return base; let n = 2; while (names.has(`${base} ${n}`)) n++; return `${base} ${n}`; };
 
@@ -133,7 +133,7 @@ function sectionHtml(tab) {
       }
       return `<div class="app-row${s.hidden ? ' off' : ''}" data-id="${esc(s.id)}">
         <span class="app-ico">${glyph(s)}</span>
-        <div class="app-name"><span>${esc(s.name)}</span>${s.custom ? `<small>${s.ai ? 'AI · ' : ''}${esc(new URL(s.url).host)}${s.own ? ' · own sign-in' : ' · Microsoft 365 sign-in'}${s.mic ? ' · microphone' : ''}</small>` : s.kind === 'local' ? '<small>Built into WakeUp · works offline</small>' : ''}</div>
+        <div class="app-name"><span>${esc(s.name)}</span>${s.custom ? `<small>${s.ai ? 'AI · ' : ''}${esc(new URL(s.url).host)}${s.own ? ' · own sign-in' : ' · Microsoft 365 sign-in'}${s.mic ? ' · microphone' : ''}${s.external ? ' · opens in your browser' : ''}</small>` : s.kind === 'local' ? '<small>Built into WakeUp · works offline</small>' : ''}</div>
         ${sw(`show:${s.id}`, !s.hidden, `Show ${s.name}`, !s.hidden && SV.length === 1)}
         ${s.kind === 'local' ? '<span></span>' : sw(`bg:${s.id}`, s.keepAlive, `Keep ${s.name} running`)}
         ${s.id === 'tasks' ? '<span></span>' : sw(`notify:${s.id}`, SET.notify[s.id] !== false, s.id === 'timetable' ? 'Class reminders' : `${s.name} notifications`)}
@@ -151,6 +151,7 @@ function sectionHtml(tab) {
           <label class="color"><span>Colour</span><input name="color" type="color" value="${esc(f.color)}"></label>
         </div>
         ${f.ai ? `<div class="set-row tight"><div class="set-text"><div class="set-title">Microphone</div><div class="set-desc">Lets ${esc(f.name || 'this AI')} hear you for voice chat. It never gets your camera or screen.</div></div><div class="set-ctl">${sw('form-mic', f.mic, 'Allow the microphone')}</div></div>` : ''}
+        <div class="set-row tight"><div class="set-text"><div class="set-title">Open in my browser</div><div class="set-desc">For sites that won’t let you sign in inside WakeUp, like Google’s (NotebookLM). Clicking the app opens it in your browser instead.</div></div><div class="set-ctl">${sw('form-ext', f.external, 'Open in my browser')}</div></div>
         <div class="set-row tight"><div class="set-text"><div class="set-title">Sign-in</div><div class="set-desc">${f.own ? `Its own sign-in, separate from everything else.${f.ai ? ' Add the same AI again under another name (say “ChatGPT Work”) to use a second account side by side.' : ''}` : 'Uses the Microsoft 365 account you’re signed in with in Outlook and Teams.'}</div></div>
           <div class="set-ctl">${seg('form-own', f.own ? 'own' : 'm365', [['own', 'Separate'], ['m365', 'Microsoft 365']], 'Sign-in')}</div></div>
         <p class="form-error" role="alert">${esc(f.error || '')}</p>
@@ -279,6 +280,7 @@ function onSettingsClick(e) {
     const on = t.getAttribute('aria-checked') !== 'true';
     const [kind, sid] = k.split(':');
     if (kind === 'form-mic') { appForm.mic = on; renderSettings(); return; }
+    if (kind === 'form-ext') { appForm.external = on; renderSettings(); return; }
     if (kind === 'autostart') save({ autostart: on });
     else if (kind === 'outlookOne') save({ hidden: on ? [...SET.hidden, 'calendar'] : SET.hidden.filter((x) => x !== 'calendar') });
     else if (kind === 'show') save({ hidden: on ? SET.hidden.filter((x) => x !== sid) : [...SET.hidden, sid] });
@@ -345,7 +347,7 @@ function onAppSubmit(e) {
   let u = null; try { u = new URL(url); } catch { /* invalid */ }
   f.error = !name ? 'Give the app a name.' : !u || !u.hostname.includes('.') ? 'That doesn’t look like a web address. Try something like https://www.notion.so' : u.protocol !== 'https:' ? 'Only secure (https://) addresses can be added.' : '';
   if (f.error) { renderSettings(); return; }
-  const entry = { id: f.id, name, url: u.href, color: f.color, own: f.own, icon: f.id && f.orig === u.href ? f.icon : null, ai: !!f.ai, mic: !!f.mic };
+  const entry = { id: f.id, name, url: u.href, color: f.color, own: f.own, icon: f.id && f.orig === u.href ? f.icon : null, ai: !!f.ai, mic: !!f.mic, external: !!f.external };
   const apps = f.id ? SET.customApps.map((c) => (c.id === f.id ? entry : c)) : [...SET.customApps, entry];
   const before = new Set(SET.customApps.map((c) => c.id)); appForm = null;
   save({ customApps: apps }).then((ok) => {

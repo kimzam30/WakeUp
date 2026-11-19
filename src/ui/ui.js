@@ -10,6 +10,8 @@
 
 const GAP = 6; const MIN_TILE = 200; const MIN_FREE_W = 280; const MIN_FREE_H = 180; const SNAP = 10;
 let HEADER = 40; // pane header height in px; follows the UI scale (set in render)
+let TABH = 34; // the tab strip under it, when an app has more than one tab
+const topOf = (id) => HEADER + (hasTabs(id) ? TABH : 0);
 
 const KEYS_HTML = `<dl class="keys">
   <div><dt><kbd>Ctrl</kbd><kbd>K</kbd></dt><dd>Jump to an app, file or action</dd></div>
@@ -187,6 +189,7 @@ const blocked = (id) => ['error', 'crashed', 'hung'].includes(status[id]);
 function render(dragFrame = false) {
   if (!SV.length) return; // not initialised yet
   HEADER = scaled(40); document.documentElement.style.setProperty('--hdr', `${HEADER}px`);
+  TABH = scaled(34); document.documentElement.style.setProperty('--tabh', `${TABH}px`);
   box = stage.getBoundingClientRect();
   geometry();
   document.body.classList.toggle('mode-free', L.mode === 'free');
@@ -247,7 +250,7 @@ function queueBounds() {
     for (const id of ids) {
       if (blocked(id) || isLocal(id)) continue;
       const r = R[id];
-      rects[id] = { x: box.left + r.x, y: box.top + r.y + HEADER, width: r.w, height: r.h - HEADER };
+      rects[id] = { x: box.left + r.x, y: box.top + r.y + topOf(id), width: r.w, height: r.h - topOf(id) };
       order.push(id);
     }
     hub.bounds({ rects, order });
@@ -303,11 +306,13 @@ function paneEl(id) {
       <span class="pstat" role="status" hidden></span>
       <span class="tip" hidden>Drag an app from the sidebar here to see two side by side <button class="tip-x" aria-label="Dismiss tip">${btnSvg('close')}</button></span>
       <span class="progress" aria-hidden="true"></span>
-      <div class="acts">${b('shot', 'Screenshot', '', 'camera')}${b('split', 'Split with another app')}${ext}${b('popout', 'Pop out into its own window', 'Ctrl+Shift+O')}${b('zoom', 'Fill the window', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}</div>
+      <div class="acts">${svc.kind === 'web' ? b('newtab', 'New tab', 'Ctrl+T', 'plus') : ''}${b('shot', 'Screenshot', '', 'camera')}${b('split', 'Split with another app')}${ext}${b('popout', 'Pop out into its own window', 'Ctrl+Shift+O')}${b('zoom', 'Fill the window', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}</div>
     </header>
+    <div class="tabstrip" hidden></div>
     <div class="body">${svc.kind === 'local' ? '<div class="local-root"></div>' : `<span class="ghost-glyph">${glyph(svc)}</span><div class="state" role="status" aria-live="polite"></div>`}</div>
     ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((e) => `<div class="rh ${e}" data-e="${e}"></div>`).join('')}`;
   $('.name', el).textContent = svc.name;
+  fillTabStrip($('.tabstrip', el), id, svc.name);
   el.querySelectorAll('.hbtn').forEach((btn) => {
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
     btn.addEventListener('click', (e) => {
@@ -318,6 +323,7 @@ function paneEl(id) {
       else if (a === 'popout') popOut(id);
       else if (a === 'split') openSplitMenu(id, btn);
       else if (a === 'shot') openShotMenu(btn, id);
+      else if (a === 'newtab') hub.tab(id, 'new');
       else hub.nav(id, a);
     });
   });
@@ -556,7 +562,7 @@ async function takeShot(kind, forceId = null) {
   const id = forceId && shown().includes(forceId) ? forceId : L.focused && shown().includes(L.focused) && !showHome() ? L.focused : null;
   showNotice({ id: 'shot', kind: 'busy', title: 'Taking a screenshot…' });
   if (kind === 'app' && !id) { showShotResult({ error: 'Open an app first, then take its screenshot.' }); return; }
-  const rect = id && R[id] ? { x: box.left + R[id].x, y: box.top + R[id].y + HEADER, width: R[id].w, height: R[id].h - HEADER } : null;
+  const rect = id && R[id] ? { x: box.left + R[id].x, y: box.top + R[id].y + topOf(id), width: R[id].w, height: R[id].h - topOf(id) } : null;
   let r = await hub.capture(kind, id, rect);
   let thumb = null;
   if (r?.compose) { thumb = await composeShot(r.compose); r = await hub.saveShot(thumb); }
@@ -597,6 +603,7 @@ function stashCurrent() {
 }
 function openPane(id, at) {
   if (!BY[id] || BY[id].hidden) return;
+  if (BY[id].external) { hub.openLink(BY[id].url); return; } // set to open in your browser (Settings → Apps)
   homeOpen = false;
   if (settingsOpen) toggleSettings(false);
   closeOverlay();
@@ -905,6 +912,14 @@ function applyDrop(id, hit, at) {
 }
 
 // ---------- main → UI ----------
+hub.onTabs((info) => {
+  const had = hasTabs(info.id);
+  TABS[info.id] = info;
+  const el = paneEls.get(info.id);
+  if (el && BY[info.id]) fillTabStrip($('.tabstrip', el), info.id, BY[info.id].name);
+  if (had !== hasTabs(info.id)) render(); // the page below moves down or up
+});
+hub.tabs?.().then((list) => { for (const t of list || []) { TABS[t.id] = t; const el = paneEls.get(t.id); if (el && BY[t.id]) fillTabStrip($('.tabstrip', el), t.id, BY[t.id].name); } render(); });
 hub.onStatus(({ id, status: st, ...info }) => {
   if (!BY[id]) return;
   const was = blocked(id);

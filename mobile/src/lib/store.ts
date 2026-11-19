@@ -1,6 +1,7 @@
 // App state, local first: everything is saved on the device (SQLite key-value store) the moment it changes,
 // and the sync module (sync.ts) mirrors it to the cloud when the user is signed in.
 import { useRef, useSyncExternalStore } from 'react';
+import * as WebBrowser from 'expo-web-browser';
 import Storage from 'expo-sqlite/kv-store';
 import { Look, Schema } from './shared';
 import type { Planner, Settings, WebApp } from './types';
@@ -29,7 +30,9 @@ export type State = {
   openApps: string[]; // web apps loaded this session (kept alive in the Apps tab)
   activeApp: string | null;
   split: Split | null; // two apps on screen at once (Apps tab), kept across launches
+  tabs: Record<string, Tab[]>; // extra tabs of an app (its own page is the first tab), kept across launches
 };
+export type Tab = { id: string; url: string };
 export type Split = { a: string; b: string; ratio: number; focus: 'a' | 'b' };
 
 const read = <T,>(k: string, d: T): T => {
@@ -46,6 +49,7 @@ let state: State = {
   openApps: [],
   activeApp: null,
   split: null,
+  tabs: readArr<Record<string, Tab[]>>('apps.tabs', {}),
 };
 // a split from last time comes back with both apps loaded
 {
@@ -128,6 +132,9 @@ function touch(openApps: string[], id: string, keep: (string | null)[]) {
 }
 // Open an app. With a split on screen it goes into the focused half (or just takes focus if it's already showing).
 export function openApp(id: string | null) {
+  // apps set to open in the browser (Google won't let you sign in inside other apps) open in a Chrome tab
+  const ext = id ? state.settings.customApps.find((a) => a.id === id && a.external) : null;
+  if (ext) { WebBrowser.openBrowserAsync(ext.url, { showTitle: true, enableBarCollapsing: true }).catch(() => {}); return; }
   const sp = state.split;
   if (id && sp) {
     if (sp.a === id || sp.b === id) { const split = { ...sp, focus: sp.a === id ? 'a' as const : 'b' as const }; state = { ...state, split, openApps: touch(state.openApps, id, [sp.a, sp.b]) }; saveSplit(split); emit(); return; }
@@ -169,6 +176,37 @@ export function updateSplit(p: Partial<Split>) {
 }
 let splitTimer: ReturnType<typeof setTimeout> | null = null;
 const saveSplitSoon = (sp: Split) => { if (splitTimer) clearTimeout(splitTimer); splitTimer = setTimeout(() => saveSplit(sp), 400); };
+
+// ---- tabs: a second page of the same app (say two Ebwise pages). Android web views share one sign-in, so a tab is
+// just another loaded page of that app: `<appId>~<key>`. Tabs count toward the four pages kept loaded.
+const MAX_TABS = 5;
+export const baseOf = (id: string) => id.split('~')[0];
+const saveTabs = () => write('apps.tabs', state.tabs);
+export function newTab(base: string, url?: string) {
+  const app = allApps(state.settings).find((a) => a.id === base); if (!app) return;
+  const list = state.tabs[base] ?? [];
+  if (list.length >= MAX_TABS - 1) return;
+  const t: Tab = { id: `${base}~${Math.random().toString(36).slice(2, 7)}`, url: url || app.url };
+  state = { ...state, tabs: { ...state.tabs, [base]: [...list, t] } }; saveTabs();
+  openApp(t.id);
+}
+export function closeTab(id: string) {
+  const base = baseOf(id); const list = (state.tabs[base] ?? []).filter((t) => t.id !== id);
+  const tabs = { ...state.tabs }; if (list.length) tabs[base] = list; else delete tabs[base];
+  state = { ...state, tabs }; saveTabs();
+  if (state.openApps.includes(id)) closeApp(id); else emit();
+  if (state.activeApp === null && !state.split) openApp(base);
+}
+// where a tab's page is now, so it comes back there (no re-render needed)
+export function setTabUrl(id: string, url: string) {
+  const base = baseOf(id); const list = state.tabs[base]; if (!list || !/^https:\/\//.test(url)) return;
+  const i = list.findIndex((t) => t.id === id); if (i < 0 || list[i].url === url) return;
+  const next = [...list]; next[i] = { ...next[i], url };
+  state = { ...state, tabs: { ...state.tabs, [base]: next } }; saveTabs();
+}
+// your apps plus their tabs, for looking an id up
+export const withTabs = (apps: WebApp[], tabs: Record<string, Tab[]>): WebApp[] =>
+  [...apps, ...apps.flatMap((a) => (tabs[a.id] ?? []).map((t) => ({ ...a, id: t.id, url: t.url, tabOf: a.id })))];
 
 export const allApps = (s: Settings): WebApp[] => [...BUILTIN_APPS.filter((a) => s.apps.includes(a.id)), ...s.customApps];
 

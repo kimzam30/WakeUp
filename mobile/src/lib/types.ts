@@ -16,7 +16,7 @@ export type Occurrence = {
   venue: string; mode: 'campus' | 'online'; link: string; status: 'normal' | 'cancelled' | 'online' | 'moved' | 'moved-in' | 'replacement'; live: boolean; change: Change | null;
   toDate?: string | null; fromDate?: string; note?: string; notes?: Change[];
 };
-export type WebApp = { id: string; name: string; url: string; color: string; icon?: string | null; custom?: boolean; ai?: boolean };
+export type WebApp = { id: string; name: string; url: string; color: string; icon?: string | null; custom?: boolean; ai?: boolean; external?: boolean; tabOf?: string };
 export type Settings = {
   theme: 'system' | 'light' | 'dark'; weekStart: 0 | 1; nickname: string; reminders: 0 | 5 | 10 | 15; classLabel: 'code' | 'name' | 'both';
   notify: Record<string, boolean>; customApps: WebApp[]; apps: string[]; // apps: built-in apps shown on this device

@@ -1,6 +1,6 @@
 {
   "name": "mobile",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "main": "index.js",
   "dependencies": {
     "@react-native-community/datetimepicker": "9.2.1",
