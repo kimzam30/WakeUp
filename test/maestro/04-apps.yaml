@@ -13,6 +13,7 @@ name: apps
 # phones: ⋯ holds the actions, with words (v3 top bar, option A)
 - tapOn: "More for Ebwise"
 - assertVisible: "Open in browser"
+- assertVisible: "Reset Ebwise if it won’t load"
 - takeScreenshot: shots/apps-03-more-sheet
 - tapOn: "New Ebwise tab"
 - waitForAnimationToEnd: { timeout: 8000 }

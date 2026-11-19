@@ -3,7 +3,7 @@
 // Split view puts two apps on screen: stacked top and bottom in a portrait window, side by side in a landscape
 // one, with a draggable divider. The toolbar and the back gesture act on the focused half (outlined).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Linking, PanResponder, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, BackHandler, Linking, PanResponder, Pressable, ScrollView, View } from 'react-native';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { useFocusEffect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -160,6 +160,7 @@ export default function Apps() {
     else if (k === 'tab') { haptic('tap'); newTab(base!); }
     else if (k === 'split') { if (split) closeSplit(); else setPicker(true); }
     else if (k === 'browser') openOutside(navRef.current[app.id]?.url || app.url);
+    else if (k === 'reset') resetters[app.id]?.();
     else if (k === 'close') closeApp(app.id);
   };
   const row = (k: string, icon: string, label: string, tint?: string) => <MenuRow icon={icon} label={label} tint={tint} onPress={() => act(k)} />;
@@ -197,6 +198,7 @@ export default function Apps() {
             {!split ? row('tab', 'plus', `New ${app.name} tab`) : null}
             {canSplit ? row('split', 'split', split ? 'Close split screen' : 'Split with another app') : null}
             {row('browser', 'external', 'Open in browser')}
+            {row('reset', 'reload', `Reset ${app.name} if it won’t load`)}
             <View style={{ height: 1, backgroundColor: c.line, marginVertical: S(1) }} />
             {row('close', 'close', `Close ${app.name}`)}
           </View>
@@ -348,9 +350,22 @@ function autoSignIn(app: WebApp, url: string, view: ComponentRef<typeof WebView>
 // and sign-ins stay. At most once per site every 10 minutes, so a site that is really down shows the normal error.
 const workerResetAt: Record<string, number> = {};
 const RESET_PAGE = '/robots.txt';
+const isResetPage = (url: string) => { try { return new URL(url).pathname === RESET_PAGE; } catch { return false; } };
 const PROBE = `window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({wakeupProbe:location.protocol}));true;`;
 const CLEAR_WORKERS = `(function(){var done=function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({wakeupWorkersCleared:true}));};
 try{navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));}).then(done,done);}catch(e){done();}})();true;`;
+// Teams breaks its own worker again within minutes of a repair (seen on the Flip, 2026-11-20, on both of its addresses),
+// so on phones Teams doesn't get one at all: register() is refused and any old worker removed, on every Teams page.
+// Runs both as the page starts (the library's early hook can land too soon) and when it finishes loading.
+// Cost: no offline Teams, a little slower start. Sign-in and cookies are untouched. Settings → Apps can turn it back on.
+const TEAMS_HOST = /(^|\.)(teams\.microsoft\.com|teams\.cloud\.microsoft|teams\.live\.com)$/;
+const BLOCK_WORKERS = `(function(){try{if(!${TEAMS_HOST}.test(location.hostname)||!window.ServiceWorkerContainer||window.__wakeupNoWorker)return;window.__wakeupNoWorker=1;
+ServiceWorkerContainer.prototype.register=function(){return Promise.reject(new DOMException('Service workers are off for this site in WakeUp','SecurityError'));};
+navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});});}catch(e){}})();true;`;
+const SILENT_MS = 10e3; // a load with no end and no answer from the page by now has failed
+const RESET_GIVE_UP_MS = 15e3; // the repair page itself didn't load
+// "Reset" from the ⋯ menu reaches the pane through this, by app id
+const resetters: Record<string, () => void> = {};
 function brokenWorkerOrigin(url: string, description?: string) {
   if (description !== undefined && !/ERR_FAILED/.test(description)) return null;
   let u: URL; try { u = new URL(url); } catch { return null; }
@@ -369,21 +384,49 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onT
   const [broken, setBroken] = useState(false); // Android's own error page is showing: cover it with ours
   const loadingUrl = useRef<string | null>(null);
   const probes = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const answered = useRef(true); // the page (or Android) said something since the last load started
+  const lastUrl = useRef(a.url); // the last real page, to come back to after a manual reset
+  const giveUp = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noWorker = useStore((s) => !s.settings.teamsCache);
   // A load the worker fails never ends or errors on Android's side (checked on the emulator with a broken worker):
-  // only "started" arrives, then Android's error page. So ask the page where it is a few seconds in.
+  // only "started" arrives, then Android's error page. So ask the page where it is a few seconds in, and treat
+  // silence as a failure too.
   const started = (url: string) => {
     probes.current.forEach(clearTimeout); setBroken(false);
     if (!/^https:/.test(url)) return;
-    loadingUrl.current = url;
-    probes.current = [2500, 8000].map((ms) => setTimeout(() => ref.current?.injectJavaScript(PROBE), ms));
+    loadingUrl.current = url; answered.current = false;
+    probes.current = [
+      ...[2500, 8000].map((ms) => setTimeout(() => ref.current?.injectJavaScript(PROBE), ms)),
+      setTimeout(() => { if (!answered.current) failed(url); }, SILENT_MS),
+    ];
+  };
+  // open the site's /robots.txt, clear its workers there (onLoadEnd), then load `url` again (onMessage)
+  const repair = (origin: string, url: string) => {
+    resetting.current = url; setBroken(false);
+    setSrc(`${origin}${RESET_PAGE}?wakeup=${Date.now()}`);
+    if (giveUp.current) clearTimeout(giveUp.current);
+    giveUp.current = setTimeout(() => { if (resetting.current) { resetting.current = null; setBroken(true); } }, RESET_GIVE_UP_MS);
   };
   const failed = (url: string, description?: string) => {
     if (resetting.current) return;
     const origin = brokenWorkerOrigin(url, description);
     if (!origin) { if (description === undefined) setBroken(true); return; }
-    resetting.current = url; setSrc(origin + RESET_PAGE);
+    repair(origin, url);
   };
-  useEffect(() => () => probes.current.forEach(clearTimeout), []);
+  // Try again and the ⋯ menu's Reset: the same repair, without the 10-minute limit
+  const resetNow = () => {
+    const u = loadingUrl.current && !isResetPage(loadingUrl.current) ? loadingUrl.current : lastUrl.current;
+    let origin: string; try { origin = new URL(u).origin; } catch { ref.current?.reload(); return; }
+    workerResetAt[origin] = Date.now(); resetting.current = null;
+    repair(origin, u);
+  };
+  useEffect(() => { resetters[a.id] = resetNow; return () => { delete resetters[a.id]; }; });
+  // coming back to WakeUp: the page may have failed while it was in the background
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') ref.current?.injectJavaScript(PROBE); });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => () => { probes.current.forEach(clearTimeout); if (giveUp.current) clearTimeout(giveUp.current); }, []);
   return (
     <View style={{ flex: 1 }} onTouchStart={onTouch}>
       <WebView
@@ -391,11 +434,14 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onT
         ref={(r) => { ref.current = r; setRef(a.id, r); }}
         source={{ uri: src }}
         userAgent={desktop ? DESKTOP_UA : undefined}
-        onNavigationStateChange={(e) => onNav(a.id, e)}
+        onNavigationStateChange={(e) => { if (/^https:/.test(e.url) && !isResetPage(e.url)) lastUrl.current = e.url; onNav(a.id, e); }}
+        injectedJavaScriptBeforeContentLoaded={noWorker ? BLOCK_WORKERS : undefined}
         onLoadStart={(e) => started(e.nativeEvent.url)}
         onLoadEnd={(e) => {
           const { url } = e.nativeEvent;
-          if (resetting.current && url.endsWith(RESET_PAGE)) { ref.current?.injectJavaScript(CLEAR_WORKERS); return; }
+          answered.current = true;
+          if (resetting.current && isResetPage(url)) { ref.current?.injectJavaScript(CLEAR_WORKERS); return; }
+          if (noWorker) ref.current?.injectJavaScript(BLOCK_WORKERS);
           autoSignIn(a, e.nativeEvent.url, ref.current);
           // saved sign-in: typed only on Microsoft's sign-in page (lib/signins.ts)
           signInScript(e.nativeEvent.url).then((js) => { if (js) ref.current?.injectJavaScript(js); }).catch(() => {});
@@ -403,8 +449,11 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onT
         onError={(e) => failed(e.nativeEvent.url, e.nativeEvent.description)}
         onMessage={(e) => {
           const d = e.nativeEvent.data;
-          if (d.includes('wakeupProbe')) { if (d.includes('chrome-error:')) failed(loadingUrl.current ?? a.url); return; }
-          if (resetting.current && d.includes('wakeupWorkersCleared')) { setSrc(resetting.current); resetting.current = null; return; }
+          if (d.includes('wakeupProbe')) { answered.current = true; if (d.includes('chrome-error:')) failed(loadingUrl.current ?? a.url); return; }
+          if (resetting.current && d.includes('wakeupWorkersCleared')) {
+            if (giveUp.current) clearTimeout(giveUp.current);
+            setSrc(resetting.current); resetting.current = null; return;
+          }
           onMessage(a.id, e.nativeEvent.data);
         }}
         sharedCookiesEnabled thirdPartyCookiesEnabled domStorageEnabled javaScriptEnabled
@@ -438,7 +487,7 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onT
           <Icon name="offline" size={32} color={c.faint} />
           <Txt kind="headline">{`${a.name} didn’t load`}</Txt>
           <Txt muted style={{ textAlign: 'center' }}>Check your connection, then try again. If it keeps happening, open it in your browser from the top bar.</Txt>
-          <Button label="Try again" icon="reload" onPress={() => { setBroken(false); ref.current?.reload(); }} />
+          <Button label="Try again" icon="reload" onPress={resetNow} />
         </View>
       ) : null}
     </View>

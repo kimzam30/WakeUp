@@ -142,6 +142,11 @@ function AppsCard() {
             <SetRow title={a.name} desc={a.id === 'calendar' ? 'Outlook’s calendar on its own' : undefined}>
               <Switch label={`Show ${a.name}`} value={s.apps.includes(a.id)} onChange={(on) => (on ? setSettings({ apps: [...s.apps, a.id] }) : hide(a))} />
             </SetRow>
+            {a.id === 'teams' && s.apps.includes('teams') ? (
+              <SetRow title="Teams offline cache" desc="Off stops Teams’ black “Web page not available” screen. On lets Teams open a little faster.">
+                <Switch label="Teams offline cache" value={!!s.teamsCache} onChange={(on) => setSettings({ teamsCache: on })} />
+              </SetRow>
+            ) : null}
           </View>
         ))}
         {s.customApps.map((a) => (
