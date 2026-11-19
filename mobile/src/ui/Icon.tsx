@@ -29,6 +29,7 @@ import Globe from 'lucide-react-native/icons/globe';
 import GraduationCap from 'lucide-react-native/icons/graduation-cap';
 import House from 'lucide-react-native/icons/house';
 import Info from 'lucide-react-native/icons/info';
+import ScanQrCode from 'lucide-react-native/icons/scan-qr-code';
 import LayoutGrid from 'lucide-react-native/icons/layout-grid';
 import Link from 'lucide-react-native/icons/link';
 import ListChecks from 'lucide-react-native/icons/list-checks';
@@ -69,7 +70,7 @@ const P: Record<string, LucideIcon> = {
   code: Code, sigma: Sigma, flask: FlaskConical, chart: ChartColumn, book: BookOpen, cpu: Cpu,
   brief: Briefcase, pen: PenLine, globe: Globe, chat: MessageSquare, db: Database, music: Music,
   palette: Palette, scale: Scale, mic: Mic, timer: Timer, undo: Undo2, search: Search,
-  done: CircleCheck, exam: GraduationCap, arrow: ArrowRight, user: User,
+  done: CircleCheck, exam: GraduationCap, arrow: ArrowRight, user: User, qr: ScanQrCode,
 };
 export const ICON_NAMES = Object.keys(P);
 

@@ -16,6 +16,8 @@ import { fmtTime } from '../lib/format';
 import type { WebApp } from '../lib/types';
 import { Legal, Look } from '../lib/shared';
 import { Avatar } from './Avatar';
+import { forgetSignIn, saveSignIn, savedEmail } from '../lib/signins';
+import { toast } from './Toast';
 
 const AI: [string, string, string][] = [
   ['ChatGPT', 'https://chatgpt.com/', '#10a37f'], ['Claude', 'https://claude.ai/', '#d97757'], ['Gemini', 'https://gemini.google.com/', '#4285f4'],
@@ -156,6 +158,7 @@ function AppsCard() {
         <View style={{ padding: S(3) }}><Button small icon="plus" label="Add an app" onPress={() => setAdding(true)} /></View>
       </Card>
       <Txt kind="small" muted>Apps you add here also appear on your other devices. Google doesn’t allow “Continue with Google” inside apps, so sign in with your email, or open the app in your browser.</Txt>
+      <SignInCard />
       <AddApp open={adding} onClose={() => setAdding(false)} existing={s.customApps} onAdd={(a) => setSettings({ customApps: [...s.customApps, a] })} />
     </View>
   );
@@ -345,6 +348,41 @@ function AboutCard() {
       <Divider />
       <SetRow title="Show the welcome tour again" desc="Your timetable and tasks stay as they are."><Button small label="Show" onPress={() => setOnboarded(false)} /></SetRow>
     </Card>
+  );
+}
+
+// Saved sign-in (v3): one Microsoft account, typed into Microsoft's sign-in page for Ebwise, Outlook and Teams.
+// Encrypted on this phone (Android Keystore) and never synced; the password field is never filled back in.
+function SignInCard() {
+  const { c } = useTheme();
+  const [email, setEmail] = useState<string | null | undefined>(undefined); // undefined while reading
+  const [draft, setDraft] = useState({ email: '', password: '' });
+  const [err, setErr] = useState('');
+  useEffect(() => { savedEmail().then(setEmail).catch(() => setEmail(null)); }, []);
+  const save = async () => {
+    try { await saveSignIn(draft.email, draft.password); setEmail(draft.email.trim()); setDraft({ email: '', password: '' }); setErr(''); toast({ icon: 'check', text: 'Microsoft sign-in saved on this phone' }); }
+    catch (e) { setErr((e as Error).message); }
+  };
+  const forget = () => Alert.alert('Forget the saved sign-in?', 'WakeUp stops typing it into Microsoft’s sign-in page. Apps you’re signed in to stay signed in.', [
+    { text: 'Cancel', style: 'cancel' }, { text: 'Forget', style: 'destructive', onPress: () => { forgetSignIn().then(() => { setEmail(null); toast({ icon: 'check', text: 'Saved sign-in forgotten' }); }); } }]);
+  if (email === undefined) return null;
+  return (
+    <View style={{ gap: S(2), marginTop: S(4) }}>
+      <Txt kind="headline">Saved sign-in</Txt>
+      <Txt kind="small" muted>Kept encrypted on this phone only. It never syncs, and WakeUp types it into Microsoft’s sign-in page and nowhere else. You still press Sign in.</Txt>
+      <Card>
+        {email ? (
+          <SetRow title="Microsoft account" desc={email}><Button small kind="danger" label="Forget" onPress={forget} /></SetRow>
+        ) : (
+          <View style={{ padding: S(4), gap: S(3) }}>
+            <Field label="Email" value={draft.email} onChangeText={(v) => setDraft({ ...draft, email: v })} placeholder="you@student.mmu.edu.my" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="off" />
+            <Field label="Password" value={draft.password} onChangeText={(v) => setDraft({ ...draft, password: v })} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="off" />
+            {err ? <Txt kind="small" style={{ color: c.bad }}>{err}</Txt> : null}
+            <Button small kind="primary" label="Save" onPress={save} disabled={!draft.email.trim() || !draft.password} />
+          </View>
+        )}
+      </Card>
+    </View>
   );
 }
 

@@ -287,6 +287,42 @@ function startSideResize(e) {
 function setCover(on) { if (covered !== on) { covered = on; hub.cover(on); } }
 
 const paneSig = (s) => `${s.kind}:${s.name}:${s.color}:${s.icon ? 1 : 0}:${s.local ? 1 : 0}`;
+// ---------- attendance QR (v3, A6) ----------
+// On a Teams or Google Meet pane, the QR button looks at the pane's screen every 3 seconds (a shared slide with an
+// attendance QR) for up to 10 minutes, and offers to open the link it finds. The picture never leaves this computer.
+const MEET_HOSTS = /(^|\.)(teams\.microsoft\.com|teams\.live\.com|teams\.cloud\.microsoft|meet\.google\.com)$/;
+const isMeeting = (svc) => svc.kind === 'web' && (svc.id === 'teams' || (() => { try { return MEET_HOSTS.test(new URL(svc.url).hostname); } catch { return false; } })());
+const QR_SCANS = new Map(); // pane id → {until, timer}
+const qrBtn = (id, on) => paneEls.get(id)?.querySelector('[data-a="qr"]')?.classList.toggle('on', on);
+function stopQrScan(id) {
+  const st = QR_SCANS.get(id); if (!st) return;
+  clearTimeout(st.timer); QR_SCANS.delete(id); dismissNotice(`qr:${id}`); qrBtn(id, false);
+}
+function toggleQrScan(id) {
+  if (QR_SCANS.has(id)) { stopQrScan(id); return; }
+  const name = BY[id]?.name || 'this app';
+  QR_SCANS.set(id, { until: Date.now() + 10 * 60e3, timer: null }); qrBtn(id, true);
+  showNotice({ id: `qr:${id}`, kind: 'busy', sticky: true, title: 'Looking for an attendance QR', detail: `On ${name}’s screen. Keep the shared slide in view.`, actions: [{ label: 'Stop', run: () => stopQrScan(id) }] });
+  const step = async () => {
+    const st = QR_SCANS.get(id); if (!st) return;
+    if (Date.now() > st.until) { stopQrScan(id); showNotice({ kind: 'info', title: 'No attendance QR found', detail: 'Looked for 10 minutes. Press the QR button again when it’s on screen.' }); return; }
+    let r = null; try { r = await hub.scanQr(id); } catch { /* the pane is busy: try again next time */ }
+    if (!QR_SCANS.has(id)) return;
+    if (r?.gone) { stopQrScan(id); return; }
+    if (r?.text) { stopQrScan(id); qrFound(r.text); return; }
+    st.timer = setTimeout(step, 3000);
+  };
+  step();
+}
+function qrFound(text) {
+  let u = null; try { u = new URL(text); } catch { /* not a link */ }
+  const link = u && (u.protocol === 'https:' || u.protocol === 'http:') ? u.href : null;
+  const copy = (v) => navigator.clipboard.writeText(v).catch(() => {});
+  showNotice(link
+    ? { kind: 'success', sticky: true, title: 'Attendance QR found', detail: `${u.hostname}${u.pathname.length > 1 ? u.pathname.slice(0, 40) : ''}`, actions: [{ label: 'Open attendance link', run: () => hub.openLink(link) }, { label: 'Copy link', run: () => copy(link) }] }
+    : { kind: 'info', sticky: true, title: 'QR code found', detail: text.slice(0, 160), actions: [{ label: 'Copy text', run: () => copy(text) }] });
+}
+
 function paneEl(id) {
   const svc = BY[id];
   const old = paneEls.get(id);
@@ -306,7 +342,7 @@ function paneEl(id) {
       <span class="pstat" role="status" hidden></span>
       <span class="tip" hidden>Drag an app from the sidebar here to see two side by side <button class="tip-x" aria-label="Dismiss tip">${btnSvg('close')}</button></span>
       <span class="progress" aria-hidden="true"></span>
-      <div class="acts">${svc.kind === 'web' ? b('newtab', 'New tab', 'Ctrl+T', 'plus') : ''}${b('shot', 'Screenshot', '', 'camera')}${b('split', 'Split with another app')}${ext}${b('popout', 'Pop out into its own window', 'Ctrl+Shift+O')}${b('zoom', 'Fill the window', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}</div>
+      <div class="acts">${isMeeting(svc) ? b('qr', 'Scan for an attendance QR on screen') : ''}${svc.kind === 'web' ? b('newtab', 'New tab', 'Ctrl+T', 'plus') : ''}${b('shot', 'Screenshot', '', 'camera')}${b('split', 'Split with another app')}${ext}${b('popout', 'Pop out into its own window', 'Ctrl+Shift+O')}${b('zoom', 'Fill the window', 'Ctrl+M')}${b('close', 'Close', 'Ctrl+W')}</div>
     </header>
     <div class="tabstrip" hidden></div>
     <div class="body">${svc.kind === 'local' ? '<div class="local-root"></div>' : `<span class="ghost-glyph">${glyph(svc)}</span><div class="state" role="status" aria-live="polite"></div>`}</div>
@@ -324,6 +360,7 @@ function paneEl(id) {
       else if (a === 'split') openSplitMenu(id, btn);
       else if (a === 'shot') openShotMenu(btn, id);
       else if (a === 'newtab') hub.tab(id, 'new');
+      else if (a === 'qr') toggleQrScan(id);
       else hub.nav(id, a);
     });
   });

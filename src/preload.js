@@ -39,6 +39,8 @@ if (location.protocol === 'file:' && /\/ui\/(index|pop|link)\.html$/.test(locati
   // timetable + tasks
   planner: () => ipcRenderer.invoke('init').then((s) => s.planner),
   setPlanner: (patch) => ipcRenderer.invoke('planner-set', patch),
+  signIns: (action, data) => ipcRenderer.invoke('signins', action, data),
+  scanQr: (id) => ipcRenderer.invoke('qr-scan', id),
   exportPlanner: () => ipcRenderer.invoke('planner-export'),
   importPlanner: () => ipcRenderer.invoke('planner-import'),
   openLink: (url) => ipcRenderer.send('open-link', url),

@@ -937,3 +937,10 @@ body.pop.finding .pop-tabs { top: 40px; }
 .fp-sec .rows li { min-height: 2.4rem; }
 .fp-sec .grow { flex: 1; }
 .fp-sec p { margin: 0; }
+
+/* ---------- v3: saved sign-in (Settings → Apps) ---------- */
+.signin-form { display: flex; flex-direction: column; gap: 0.7rem; padding: 0.9231rem 1.0769rem; }
+.signin-fields { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.signin-fields .text-in { flex: 1 1 12rem; min-width: 0; }
+.set-desc.err { color: var(--bad); }
+.pane header .hbtn[data-a="qr"].on { color: var(--accent-text); background: var(--accent-soft); }

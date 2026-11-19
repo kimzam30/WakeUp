@@ -24,7 +24,6 @@ name: settings
 - tapOn: { text: "https://…|http://example.com" }
 - eraseText: 40
 - inputText: "example.com"
-- hideKeyboard
 - tapOn: { text: "Add", rightOf: "Cancel" }
 - assertVisible: "example.com"
 - takeScreenshot: shots/set-03-apps

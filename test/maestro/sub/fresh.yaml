@@ -20,6 +20,14 @@ appId: my.kimzam.wakeup
 - tapOn: "Sun"
 - tapOn: "Save"
 - tapOn: "Continue"
+- waitForAnimationToEnd: { timeout: 3000 }
 - tapOn: "Continue"
+- waitForAnimationToEnd: { timeout: 3000 }
+# the apps step sometimes comes before reminders: press Continue once more when it does
+- runFlow:
+    when: { notVisible: "Turn on reminders" }
+    commands:
+      - tapOn: "Continue"
+      - waitForAnimationToEnd: { timeout: 3000 }
 - tapOn: "Turn on reminders"
 - tapOn: "Open Today"

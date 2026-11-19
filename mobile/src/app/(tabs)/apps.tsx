@@ -15,6 +15,9 @@ import { R, S, useTheme } from '../../ui/theme';
 import { allApps, baseOf, closeApp, closeSplit, closeTab, focusedApp, getState, newTab, openApp, openSplit, setSettings, setTabUrl, updateSplit, useStore, withTabs } from '../../lib/store';
 import type { WebApp } from '../../lib/types';
 import { SignIn } from '../../lib/shared';
+import { signInScript } from '../../lib/signins';
+import { isMeetingUrl, startScanScript, stopScanScript } from '../../lib/qr-scan';
+import { dismissToast, toast } from '../../ui/Toast';
 
 // Teams' web app only runs with a desktop browser signature; on a tablet every app gets the full desktop site.
 const DESKTOP_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
@@ -106,6 +109,25 @@ export default function Apps() {
     if (!prev || prev.loading !== e.loading) setLoading((l) => ({ ...l, [id]: e.loading }));
   }, []);
   const setRef = useCallback((id: string, r: ComponentRef<typeof WebView> | null) => { refs.current[id] = r; }, []);
+  // attendance QR (v3, A6): the scanner runs inside the meeting page (lib/qr-scan.ts) and posts back what it finds
+  const [qrOn, setQrOn] = useState<string | null>(null);
+  const stopQr = useCallback(() => { setQrOn((id) => { if (id) refs.current[id]?.injectJavaScript(stopScanScript()); return null; }); dismissToast('qr'); }, []);
+  const startQr = (id: string) => {
+    haptic('tap'); setQrOn(id); refs.current[id]?.injectJavaScript(startScanScript());
+    toast({ id: 'qr', icon: 'qr', text: 'Looking for an attendance QR on screen…', ms: 600000, action: { label: 'Stop', run: stopQr } });
+  };
+  const onPageMessage = useCallback((id: string, data: string) => {
+    let m: { wakeupQr?: string; wakeupQrTimeout?: boolean }; try { m = JSON.parse(data); } catch { return; }
+    if (m.wakeupQrTimeout) { setQrOn(null); toast({ icon: 'qr', text: 'No attendance QR found in 10 minutes.' }); return; }
+    if (typeof m.wakeupQr !== 'string') return;
+    setQrOn(null); haptic('success');
+    const text = m.wakeupQr; let link: string | null = null;
+    try { const u = new URL(text); if (u.protocol === 'https:' || u.protocol === 'http:') link = u.href; } catch { /* plain text */ }
+    toast(link
+      ? { id: 'qr', icon: 'qr', text: `Attendance QR: ${new URL(link).hostname}`, ms: 30000, action: { label: 'Open', run: () => { Linking.openURL(link).catch(() => {}); } } }
+      : { id: 'qr', icon: 'qr', text: `QR code: ${text.slice(0, 80)}`, ms: 30000 });
+    void id;
+  }, []);
   const app = all.find((a) => a.id === focused);
   const base = app ? baseOf(app.id) : null;
   const tabList = base && tabs[base]?.length ? [base, ...tabs[base].map((t) => t.id)] : [];
@@ -136,7 +158,9 @@ export default function Apps() {
   const first = Math.round(along * ratio);
   // where each loaded app sits: a half, the whole area, or parked off-screen (still loaded)
   const place = (id: string) => {
-    if (!shown.includes(id) || !area.w) return { position: 'absolute' as const, left: 0, top: 0, width: 1, height: 1, opacity: 0 };
+    // parked apps keep the full size, hidden behind: a page laid out in a 1×1 box keeps Android's zoom for that size,
+    // so Outlook came back zoomed in until the app restarted
+    if (!shown.includes(id)) return { position: 'absolute' as const, left: 0, top: 0, width: area.w, height: area.h, opacity: 0, zIndex: -1 };
     if (shown.length === 1) return { position: 'absolute' as const, left: 0, top: 0, width: area.w, height: area.h };
     const isA = id === split!.a;
     const len = isA ? first - 3 : along - first - 3;
@@ -158,6 +182,7 @@ export default function Apps() {
         ) : null) : switcher}</View>
         {app ? <View style={{ flexDirection: 'row', paddingRight: S(1) }}>
           {size !== 'compact' ? <IconButton icon="back" label="Back" onPress={() => refs.current[app.id]?.goBack()} /> : null}
+          {isMeetingUrl(app.url) ? <IconButton icon="qr" label={qrOn === app.id ? 'Stop looking for an attendance QR' : 'Scan for an attendance QR on screen'} color={qrOn === app.id ? c.accentText : undefined} onPress={() => (qrOn === app.id ? stopQr() : startQr(app.id))} /> : null}
           <IconButton icon="reload" label="Reload" onPress={() => refs.current[app.id]?.reload()} />
           {!split || size !== 'compact' ? <IconButton icon="plus" label={`New ${app.name} tab`} onPress={() => { haptic('tap'); newTab(base!); }} /> : null}
           {canSplit ? <IconButton icon="split" label={split ? 'Close split' : 'Split with another app'} onPress={() => (split ? closeSplit() : setPicker(true))} /> : null}
@@ -198,14 +223,15 @@ export default function Apps() {
             </View>
           </ScrollView>
         ) : null}
-        {openIds.map((id) => {
+        {/* no page loads before the area is measured, for the same reason */}
+        {area.w > 0 && openIds.map((id) => {
           const a = all.find((x) => x.id === id); if (!a) return null;
           const inSplit = !!split && shown.length > 1 && shown.includes(id);
           return (
             <View key={id} style={place(id)} pointerEvents={shown.includes(id) ? 'auto' : 'none'}>
               {inSplit ? <PaneStrip app={a} focused={focused === id} onFocus={() => openApp(id)}
                 onSwap={() => updateSplit({ a: split!.b, b: split!.a })} onMax={() => closeSplit(split!.a === id ? 'a' : 'b')} onClose={() => closeApp(id)} /> : null}
-              <Pane app={a} desktop={baseOf(a.id) === 'teams' || wide} onNav={onNav} setRef={setRef} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
+              <Pane app={a} desktop={baseOf(a.id) === 'teams' || wide} onNav={onNav} setRef={setRef} onMessage={onPageMessage} onTouch={inSplit && focused !== id ? () => openApp(id) : undefined} />
               {loading[id] ? <View style={{ position: 'absolute', top: inSplit ? STRIP : 0, left: 0, right: 0, height: 2, backgroundColor: c.accent, opacity: 0.6 }} /> : null}
             </View>
           );
@@ -242,7 +268,7 @@ function autoSignIn(app: WebApp, url: string, view: ComponentRef<typeof WebView>
   view.injectJavaScript(`document.querySelector(${JSON.stringify(sso.click)})?.click(); true;`);
 }
 
-const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { app: WebApp; desktop: boolean; onNav: (id: string, e: WebViewNavigation) => void; setRef: (id: string, r: ComponentRef<typeof WebView> | null) => void; onTouch?: () => void }) {
+const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onMessage, onTouch }: { app: WebApp; desktop: boolean; onNav: (id: string, e: WebViewNavigation) => void; setRef: (id: string, r: ComponentRef<typeof WebView> | null) => void; onMessage: (id: string, data: string) => void; onTouch?: () => void }) {
   const { c } = useTheme();
   const [life, setLife] = useState(0); // bumped when Android kills the page's renderer: the page reloads instead of the app crashing
   const ref = useRef<ComponentRef<typeof WebView> | null>(null);
@@ -254,7 +280,12 @@ const Pane = memo(function Pane({ app: a, desktop, onNav, setRef, onTouch }: { a
         source={{ uri: a.url }}
         userAgent={desktop ? DESKTOP_UA : undefined}
         onNavigationStateChange={(e) => onNav(a.id, e)}
-        onLoadEnd={(e) => autoSignIn(a, e.nativeEvent.url, ref.current)}
+        onLoadEnd={(e) => {
+          autoSignIn(a, e.nativeEvent.url, ref.current);
+          // saved sign-in: typed only on Microsoft's sign-in page (lib/signins.ts)
+          signInScript(e.nativeEvent.url).then((js) => { if (js) ref.current?.injectJavaScript(js); }).catch(() => {});
+        }}
+        onMessage={(e) => onMessage(a.id, e.nativeEvent.data)}
         sharedCookiesEnabled thirdPartyCookiesEnabled domStorageEnabled javaScriptEnabled
         setSupportMultipleWindows={false}
         originWhitelist={ANY_ORIGIN}

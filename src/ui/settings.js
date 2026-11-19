@@ -9,6 +9,8 @@ let setTab = 'general';
 let appForm = null; // null | {id?, name, url, color, own, error}
 let confirmRemove = null; // custom app id waiting for confirmation
 let SYNC = { signedIn: false, phase: 'off' }; // cloud sync status from main
+let SIGNIN = null; // saved sign-in: {strong, accounts:[{id, email}]} from main (never the password)
+let signinMsg = ''; // the last save's error or result
 const syncAgo = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60e3); return !iso ? 'not yet' : m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
 function syncRow() {
   const y = SYNC;
@@ -111,6 +113,21 @@ const seg = (k, val, opts, label) => `<div class="seg" role="radiogroup" aria-la
 const sel = (k, val, opts, label) => `<select data-k="${k}" aria-label="${esc(label)}">${opts.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 const group = (title, body) => `<section class="set-group">${title ? `<h2>${title}</h2>` : ''}<div class="set-card">${body}</div></section>`;
 
+// Saved sign-in (v3): one Microsoft account, typed into Microsoft's sign-in page for Ebwise, Outlook and Teams.
+// Encrypted on this computer and never synced; WakeUp's page only ever sees the email.
+function signinGroup() {
+  if (!SIGNIN) { hub.signIns?.('list').then((r) => { SIGNIN = r; if (setTab === 'apps') renderSettings(); }); return ''; }
+  const acct = SIGNIN.accounts.find((a) => a.id === 'microsoft');
+  const body = acct
+    ? row(`Microsoft account <span class="muted">· ${esc(acct.email)}</span>`, 'WakeUp types it into Microsoft’s sign-in page for Ebwise, Outlook and Teams. You still press Sign in, and approve any code or app prompt yourself.', '<button class="btn small danger" data-act="signin-forget">Forget</button>')
+    : !SIGNIN.strong
+      ? row('Microsoft account', 'This computer has no secure keyring, so WakeUp won’t keep a password here. On Linux, install and unlock a keyring (GNOME Keyring or KWallet), then come back.')
+      : `<form class="signin-form" data-form="signin" autocomplete="off"><div class="set-text"><div class="set-title">Microsoft account</div><div class="set-desc">Your MMU email and password. WakeUp types them into Microsoft’s sign-in page for Ebwise, Outlook and Teams, and nowhere else.</div></div>
+          <div class="signin-fields"><input class="text-in" name="email" type="email" maxlength="254" placeholder="you@student.mmu.edu.my" aria-label="Email" autocomplete="off"><input class="text-in" name="password" type="password" maxlength="256" placeholder="Password" aria-label="Password" autocomplete="new-password"><button class="btn small primary" type="submit">Save</button></div>
+          ${signinMsg ? `<div class="set-desc err" role="alert">${esc(signinMsg)}</div>` : ''}</form>`;
+  return `<section class="set-group"><h2>Saved sign-in</h2><p class="set-lead">Kept encrypted on this computer only. It never syncs to your other devices, and WakeUp’s own pages can’t read the password back.</p><div class="set-card">${body}</div></section>`;
+}
+
 function sectionHtml(tab) {
   const S = SET;
   if (tab === 'general') {
@@ -160,6 +177,7 @@ function sectionHtml(tab) {
       </form>` : '<button class="btn" data-act="add">+ Add an app</button>';
     return `<section class="set-group"><h2>Your apps</h2><p class="set-lead">Hidden apps disappear from the sidebar and stop running. Order sets their <kbd>Ctrl</kbd> number.</p>
       <div class="set-card apps"><div class="app-row head" aria-hidden="true"><span></span><span></span><span>Show</span><span>Keep running</span><span>Notify</span><span></span></div>${rows}</div></section>
+      ${signinGroup()}
       <section class="set-group"><h2>AI assistants</h2><p class="set-lead">Pick one to add it. Each one you add has its own sign-in, so you can add the same AI twice for two accounts (for example personal and work). Google often blocks “Continue with Google” inside apps; if it does, sign in with your email instead.</p>
         <div class="set-card pad"><div class="ai-grid">${AI_PRESETS.map(([n, u, c]) => `<button class="ai-pick" data-act="add-ai" data-name="${esc(n)}" data-url="${esc(u)}" data-color="${esc(c)}"><span class="ai-dot" data-c="${esc(c)}">${esc(n[0])}</span><span>${esc(n)}</span>${SET.customApps.some((a) => a.url === u) ? '<small>Add another account</small>' : ''}</button>`).join('')}<button class="ai-pick" data-act="add-ai" data-name="" data-url="" data-color="#6b6a67"><span class="ai-dot other">${btnSvg('plus')}</span><span>Other AI…</span></button></div></div></section>
       <section class="set-group"><h2>Add your own</h2><p class="set-lead">Any website that works in a browser: Notion, your MMU portal, a class forum…</p><div class="set-card pad">${form}</div></section>`;
@@ -268,7 +286,16 @@ function renderSettings() {
       <div class="set-body"><button class="hbtn set-close" data-act="close" title="Close (Esc)" aria-label="Close settings">${btnSvg('close')}</button><div class="set-content"></div></div></div>`;
     el.addEventListener('click', onSettingsClick);
     el.addEventListener('change', onSettingsChange);
-    el.addEventListener('submit', (e) => { if (e.target.dataset.form === 'nickname') saveNickname(e); else onAppSubmit(e); });
+    el.addEventListener('submit', (e) => {
+      if (e.target.dataset.form === 'nickname') saveNickname(e);
+      else if (e.target.dataset.form === 'signin') {
+        e.preventDefault(); const f = e.target;
+        hub.signIns('save', { id: 'microsoft', email: f.email.value, password: f.password.value })
+          .then((r) => { SIGNIN = r; signinMsg = ''; showNotice({ kind: 'success', title: 'Microsoft sign-in saved', detail: 'Encrypted on this computer.' }); })
+          .catch((err) => { signinMsg = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); })
+          .finally(() => { f.password.value = ''; renderSettings(); });
+      } else onAppSubmit(e);
+    });
     el.addEventListener('input', (e) => {
       if (e.target.name === 'nickname') { const f = e.target.form; const dirty = e.target.value.trim() !== (SET.nickname || ''); f.classList.toggle('dirty', dirty); f.classList.remove('saved', 'failed'); $('.save-state', f).textContent = dirty ? 'Not saved yet' : ''; return; }
       if (appForm && e.target.name in appForm) appForm[e.target.name] = e.target.value;
@@ -345,6 +372,7 @@ function onSettingsClick(e) {
   else if (act === 'pick-shots') hub.pickFolder('screenshots').then((dir) => { if (dir) save({ screenshotDir: dir }); });
   else if (act === 'reset-shots') save({ screenshotDir: '' });
   else if (act === 'tt-export') hub.exportPlanner();
+  else if (act === 'signin-forget') hub.signIns('forget', 'microsoft').then((r) => { SIGNIN = r; renderSettings(); showNotice({ kind: 'success', title: 'Saved sign-in forgotten' }); });
   else if (act === 'sync-in') { SYNC = { ...SYNC, signingIn: true, error: null }; refreshSyncCard(); hub.sync('sign-in').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } }); }
   else if (act === 'sync-cancel') hub.sync('cancel').then((st) => { if (st) { SYNC = st; refreshSyncCard(); } });
   else if (act === 'sync-now') hub.sync('now');

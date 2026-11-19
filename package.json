@@ -17,7 +17,8 @@
   "devDependencies": {
     "electron": "^45.3.3",
     "electron-builder": "^26.18.0",
-    "playwright-core": "^1.65.1"
+    "playwright-core": "^1.65.1",
+    "qrcode": "^1.5.4"
   },
   "productName": "WakeUp",
   "private": true,
@@ -55,10 +56,15 @@
     "compression": "maximum",
     "appImage": {
       "artifactName": "WakeUp-${version}.AppImage"
-    }
+    },
+    "asarUnpack": [
+      "src/qr-worker.js",
+      "node_modules/jsqr/**"
+    ]
   },
   "desktopName": "wakeup.desktop",
   "dependencies": {
-    "@supabase/supabase-js": "^2.119.0"
+    "@supabase/supabase-js": "^2.119.0",
+    "jsqr": "^1.4.0"
   }
 }

@@ -5,6 +5,7 @@ const {
 } = require('electron');
 const { createSync } = require('./sync.js');
 const { createUpdater } = require('./updater.js');
+const createSignIns = require('./signins.js');
 let sync = null; // cloud sync, started once the window is up
 let updater = null; // one-click updates from GitHub releases
 const path = require('node:path');
@@ -80,6 +81,8 @@ const isDocNav = (url) => hostIn(url, ['mmu.edu.my']) && /\/(pluginfile\.php|mod
 
 // ---- services: built-ins from services.json plus the user's own apps (Settings → Apps)
 const BUILTIN = require('./services.json');
+// saved Microsoft sign-in (Settings → Apps), filled only on Microsoft's sign-in pages (src/signins.js)
+const signIns = createSignIns({ app, safeStorage, log: (...a) => log(...a) });
 const BUILTIN_IDS = BUILTIN.map((s) => s.id);
 // Ebwise forgets its own sign-in whenever the app closes (a session-only cookie), but your Microsoft 365 sign-in is kept.
 // When the app's pane lands on its login page, press its "Microsoft 365" button for you (at most once a minute, so a failed
@@ -808,7 +811,7 @@ function routeOpen(svc, { url, disposition }) {
 // Link rules, right-click menu and popups for a pane's page and every window it opens.
 function guard(wc, svc, { linkWindow = false } = {}) {
   wc.setWindowOpenHandler((d) => routeOpen(svc, d));
-  wc.on('did-create-window', (w, d) => trackLinkWindow(w, svc, !isAuth(d.url)));
+  wc.on('did-create-window', (w, d) => { trackLinkWindow(w, svc, !isAuth(d.url)); w.webContents.on('did-finish-load', () => signIns.fill(w.webContents)); });
   wc.on('context-menu', (_e, params) => contextMenu(wc, params, svc));
   if (linkWindow) return; // link windows browse freely; panes stay on their own sites
   wc.on('will-navigate', (e, url) => {
@@ -1081,6 +1084,7 @@ function createView(id) {
   wc.on('did-navigate-in-page', (_e, url, isMain) => { if (isMain) setUrl(url); });
   wc.on('did-finish-load', () => {
     signInAgain(id, wc);
+    signIns.fill(wc);
     if (state.settings.zoom !== 100) wc.setZoomFactor(state.settings.zoom / 100);
     if (!active()) return;
     if (p.status === 'error') return; // Chromium's error page finished; only retry() clears an error
@@ -1543,6 +1547,13 @@ function setPlanner(patch, { fromCloud = false } = {}) {
   return state.planner;
 }
 ipcMain.handle('planner-set', (_e, patch) => setPlanner(patch));
+// saved sign-in: WakeUp's own windows can save, list (email only) and forget it; web pages can't reach this
+ipcMain.handle('signins', (e, action, data) => {
+  if (!shellWindows().some((w) => w.webContents === e.sender)) throw new Error('not allowed');
+  if (action === 'save') return signIns.save(data);
+  if (action === 'forget') return signIns.forget(data);
+  return signIns.list();
+});
 
 // ---- cloud sync (Settings → General → Sync): Google sign-in, then timetable, tasks and settings on every device
 // Your Google profile picture: fetched here and handed to the pages as a data: URL (their CSP allows no remote
@@ -1719,6 +1730,33 @@ async function saveShot(img) {
   return { ...shot, copied, thumb: img.resize({ width: Math.min(560, img.getSize().width) }).toDataURL() };
 }
 const rectOk = (r) => isObj(r) && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(r[k])) && r.width >= 1 && r.height >= 1;
+// Attendance QR (v3, A6): look for a QR code on a meeting pane's screen (a shared slide in Teams or Meet).
+// One capture per call; the decoding runs in a worker thread (src/qr-worker.js). Only WakeUp's own windows can ask.
+let qrWorker = null; let qrSeq = 0; const qrWaiting = new Map();
+function qrDecode(img) {
+  if (!qrWorker) {
+    const { Worker } = require('node:worker_threads');
+    // packaged builds keep the worker outside the archive (package.json → asarUnpack)
+    qrWorker = new Worker(path.join(__dirname, 'qr-worker.js').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`));
+    qrWorker.on('message', ({ id, text }) => { qrWaiting.get(id)?.(text); qrWaiting.delete(id); });
+    qrWorker.on('error', (e) => { log('qr worker:', e.message); for (const done of qrWaiting.values()) done(null); qrWaiting.clear(); qrWorker = null; });
+  }
+  const { width, height } = img.getSize(); const bitmap = img.toBitmap();
+  const id = ++qrSeq;
+  return new Promise((resolve) => {
+    qrWaiting.set(id, resolve);
+    qrWorker.postMessage({ id, bitmap: bitmap.buffer.slice(bitmap.byteOffset, bitmap.byteOffset + bitmap.byteLength), width, height });
+    setTimeout(() => { if (qrWaiting.delete(id)) resolve(null); }, 8000);
+  });
+}
+ipcMain.handle('qr-scan', async (e, id) => {
+  if (!shellWindows().some((w) => w.webContents === e.sender)) throw new Error('not allowed');
+  const wc = paneWc(id); if (!wc) return { gone: true };
+  let img = await wc.capturePage();
+  if (img.isEmpty()) return { text: null };
+  if (img.getSize().width > 1600) img = img.resize({ width: 1600, quality: 'good' });
+  return { text: await qrDecode(img) };
+});
 ipcMain.handle('capture', async (_e, { kind, id, rect } = {}) => {
   try {
     if (kind === 'app') {

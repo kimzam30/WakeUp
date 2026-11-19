@@ -14,7 +14,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 
 - **Lucide** icons (https://lucide.dev), under the ISC License. Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT); all other copyright (c) for Lucide are held by Lucide Contributors 2022. The desktop app carries the icons it uses in `src/ui/lucide.js`.
 
-## Desktop app (9 packages)
+## Desktop app (10 packages)
 
 - **@supabase/auth-js** 2.119.0: MIT. Copyright (c) 2020 Supabase
 - **@supabase/functions-js** 2.119.0: MIT. Copyright (c) 2020 Supabase
@@ -24,9 +24,10 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **@supabase/storage-js** 2.119.0: MIT. Copyright (c) 2020 Supabase
 - **@supabase/supabase-js** 2.119.0: MIT. Copyright (c) 2020 Supabase
 - **iceberg-js** 0.8.1: MIT. Copyright (c) 2025 Supabase
+- **jsqr** 1.4.0: Apache-2.0. copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
 - **tslib** 2.8.1: 0BSD. Copyright (c) Microsoft Corporation.
 
-## Android app (555 packages)
+## Android app (556 packages)
 
 - **@babel/code-frame** 7.29.7: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
 - **@babel/compat-data** 7.29.7: MIT. Copyright (c) 2014-present Sebastian McKenzie and other contributors
@@ -388,6 +389,7 @@ components; their notices ship with the app as `LICENSES.chromium.html` and `LIC
 - **jsc-safe-url** 0.2.4: 0BSD
 - **jsesc** 3.1.0: MIT
 - **json5** 2.2.3: MIT. Copyright (c) 2012-2018 Aseem Kishore, and [others].
+- **jsqr** 1.4.0: Apache-2.0. copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
 - **kleur** 3.0.3: MIT. Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
 - **lan-network** 0.2.1: MIT. Copyright (c) Phil Pluckthun,
 - **leven** 3.1.0: MIT. Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
@@ -951,7 +953,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ### Apache-2.0
 
-(as included with baseline-browser-mapping; the copyright holders are listed above)
+(as included with jsqr; the copyright holders are listed above)
 
 ```text
 Apache License
@@ -1131,7 +1133,7 @@ Apache License
    APPENDIX: How to apply the Apache License to your work.
 
       To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
+      boilerplate notice, with the fields enclosed by brackets "{}"
       replaced with your own identifying information. (Don't include
       the brackets!)  The text should be enclosed in the appropriate
       comment syntax for the file format. We also recommend that a
