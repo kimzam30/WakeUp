@@ -1,12 +1,16 @@
 // Focus mode (v3, A3): the shared rules (src/ui/focus-core.js) plus this device's saved state, your chosen lengths
 // (25/5, 50/10 or your own), a log of finished sessions for the week's stats, and a notification when each phase
 // ends, so it works with the app closed. Not synced between devices.
+// While a phase runs, a pinned notification shows it with Pause/Resume and Stop (handled in lib/reminders.ts); at the
+// end, the "Focus done" notice takes its place. Optionally, Do Not Disturb is on during focus (modules/wakeup-dnd).
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { Focus, type FocusState } from './shared';
 import { getState, kv } from './store';
 import { notificationsReady, permission } from './reminders';
+import { fmtTime } from './format';
+import Dnd from '../../modules/wakeup-dnd';
 
 const KEY = 'focus.state';
 const NOTE = 'focus-end';
@@ -26,7 +30,7 @@ export type Session = { at: number; mins: number; taskId: string | null; classId
 let log: Session[] = kv.get<Session[]>('focus.log', []).filter((x) => x && Date.now() - x.at < 60 * 864e5);
 function record(endedAt: number) {
   const t = getState().planner.tasks.find((x) => x.id === s.taskId);
-  log = [...log, { at: endedAt, mins: lengths.focus, taskId: s.taskId, classId: t?.classId ?? null }];
+  log = [...log, { at: endedAt, mins: lengths.focus, taskId: s.taskId, classId: t?.classId ?? s.classId ?? null }];
   kv.set('focus.log', log);
 }
 // this week (Monday on) by class, plus the total
@@ -57,24 +61,56 @@ catchUp();
 AppState.addEventListener('change', (st) => { if (st === 'active') catchUp(); });
 
 const taskText = () => getState().planner.tasks.find((t) => t.id === s.taskId)?.text;
-// one notification, at the end of the current phase (replaced whenever the timer changes)
+const hm = (ms: number) => { const d = new Date(ms); return fmtTime(`${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`); };
+// The pinned notification and the end notice share one id, so the notice replaces the pinned one when the phase ends
+// (even with WakeUp closed) instead of leaving a stale "until 10:45" behind.
 async function notify() {
   await notificationsReady();
   await Notifications.cancelScheduledNotificationAsync(NOTE).catch(() => {});
-  if (s.phase === 'idle' || s.endsAt == null || s.endsAt <= Date.now()) return;
+  if (s.phase === 'idle') { await Notifications.dismissNotificationAsync(NOTE).catch(() => {}); return; }
   if ((await permission()) !== 'granted') return;
   const t = taskText();
+  const name = Focus.label[s.phase];
+  const paused = Focus.paused(s);
+  if (!paused && (s.endsAt == null || s.endsAt <= Date.now())) return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: NOTE,
+    content: {
+      title: paused ? `${name} paused · ${Focus.clock(s.left ?? 0)} left` : `${name} until ${hm(s.endsAt!)}`,
+      body: t ?? (s.phase === 'focus' ? 'Stay with it.' : 'Time to rest.'),
+      data: { url: '/focus' }, sticky: true, autoDismiss: false,
+      categoryIdentifier: paused ? 'focus-paused' : 'focus-running',
+    },
+    trigger: { channelId: 'focus-live' },
+  });
+  if (paused) return;
   const focusEnds = s.phase === 'focus';
   await Notifications.scheduleNotificationAsync({
     identifier: NOTE,
     content: { title: focusEnds ? 'Focus done. Take a break.' : 'Break over. Back to it.', body: t ?? (focusEnds ? 'Nice work.' : 'Next focus starts now.'), data: { url: '/tasks' } },
-    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(s.endsAt), channelId: 'focus' },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(s.endsAt!), channelId: 'focus' },
   });
 }
-function set(next: FocusState) { s = next; kv.set(KEY, s); emit(); notify().catch(() => {}); }
+// Do Not Disturb (off unless you turn it on): on while a focus phase runs, off for breaks, pauses and stops. Android
+// turns it back off at the phase's end by itself, so a closed WakeUp never leaves your phone silent.
+let dndOn = kv.get<boolean>('focus.dnd', false);
+export const dndAvailable = () => !!Dnd;
+export const dndAccess = () => !!Dnd?.hasAccess();
+export const openDndAccess = () => Dnd?.openAccessSettings();
+export const getDnd = () => dndOn;
+export const refreshDnd = () => quiet();
+export function setDnd(on: boolean) { dndOn = on; kv.set('focus.dnd', on); quiet(); emitSoon(); }
+function quiet() {
+  if (!Dnd) return;
+  try {
+    if (dndOn && s.phase === 'focus' && !Focus.paused(s) && s.endsAt) Dnd.quietUntil(s.endsAt); else Dnd.restore();
+  } catch { /* no access: nothing changes */ }
+}
+function set(next: FocusState) { s = next; kv.set(KEY, s); emit(); quiet(); notify().catch(() => {}); }
 
 export const focus = {
-  start: (taskId?: string | null) => set(Focus.start(s, Date.now(), lengths, taskId === undefined ? s.taskId : taskId)),
+  // a task, or (from the class page) a class with no task; a new task drops the old class
+  start: (taskId?: string | null, classId?: string | null) => set(Focus.start(s, Date.now(), lengths, taskId === undefined ? s.taskId : taskId, classId !== undefined ? classId : taskId !== undefined ? null : s.classId)),
   pause: () => set(Focus.pause(s, Date.now())),
   resume: () => set(Focus.resume(s, Date.now())),
   skip: () => set(Focus.skip(s, Date.now(), lengths)),

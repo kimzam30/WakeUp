@@ -984,6 +984,7 @@ hub.onCmd(({ name, arg }) => {
   else if (name === 'help') openHelp();
   else if (name === 'shot') { if (arg === 'area') pickArea(); else takeShot(arg === 'app' ? 'app' : 'all'); }
   else if (name === 'open-file') openFileCmd(arg);
+  else if (name === 'focus' && ['start', 'pause', 'resume', 'stop'].includes(arg)) Focus.act(arg); // from the tray
   else if (name === 'link-drag') linkDragging(arg);
 });
 

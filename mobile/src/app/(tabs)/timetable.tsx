@@ -224,7 +224,10 @@ function OccurrenceSheet({ o, onClose }: { o: Occurrence | null; onClose: () => 
   const mode = useStore((s) => s.settings.classLabel);
   if (!o) return <Sheet open={false} onClose={onClose} title="">{null}</Sheet>;
   return (
-    <Sheet open onClose={onClose} title={classLabel(o.cls, mode)} footer={<Button kind="secondary" icon="edit" label="Edit class" onPress={() => { onClose(); router.push({ pathname: '/class', params: { id: o.classId } }); }} />}>
+    <Sheet open onClose={onClose} title={classLabel(o.cls, mode)} footer={<View style={{ flexDirection: 'row', gap: S(2) }}>
+      <Button kind="primary" icon="cal" label="Class page" onPress={() => { onClose(); router.push({ pathname: '/classes/[id]', params: { id: o.classId } }); }} style={{ flex: 1 }} />
+      <Button kind="secondary" icon="edit" label="Edit class" onPress={() => { onClose(); router.push({ pathname: '/class', params: { id: o.classId } }); }} style={{ flex: 1 }} />
+    </View>}>
       <OccurrenceBody key={o.key} o={o} onDone={onClose} />
     </Sheet>
   );
@@ -242,6 +245,7 @@ function SidePanel({ o, onClose }: { o: Occurrence; onClose: () => void }) {
           <IconButton icon="close" label="Close details" onPress={onClose} />
         </View>
         <OccurrenceBody key={o.key} o={o} onDone={onClose} />
+        <Button kind="primary" icon="cal" label="Class page" onPress={() => router.push({ pathname: '/classes/[id]', params: { id: o.classId } })} />
         <Button kind="secondary" icon="edit" label="Edit class" onPress={() => router.push({ pathname: '/class', params: { id: o.classId } })} />
       </ScrollView>
     </View>

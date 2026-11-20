@@ -8,12 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import Animated, { useAnimatedProps, useReducedMotion, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptics';
-import { focus, getLengths, PRESETS, setLengths, useFocus, useFocusVersion, weekStats } from '../lib/focus';
+import { dndAccess, dndAvailable, focus, getDnd, getLengths, openDndAccess, PRESETS, refreshDnd, setDnd, setLengths, useFocus, useFocusVersion, weekStats } from '../lib/focus';
 import { Focus } from '../lib/shared';
 import { useStore } from '../lib/store';
 import { useActive } from '../lib/hooks';
 import { classLabel } from '../lib/format';
-import { Button, ClassTag, Head, IconButton, Line, Pick, Txt, useLayout } from '../ui/kit';
+import { Button, ClassTag, Head, IconButton, Line, Pick, Switch, Txt, useLayout } from '../ui/kit';
 import { R, S, useTheme } from '../ui/theme';
 
 const ACircle = Animated.createAnimatedComponent(Circle);
@@ -27,7 +27,8 @@ export default function FocusScreen() {
   useFocusVersion();
   const reduce = useReducedMotion();
   const task = useStore((st) => (s.taskId ? st.planner.tasks.find((t) => t.id === s.taskId && !t.done) : undefined));
-  const cls = useStore((st) => (task?.classId ? st.planner.classes.find((k) => k.id === task.classId) : undefined));
+  const clsId = task?.classId ?? s.classId; // a task's class, or the class focused on from its page
+  const cls = useStore((st) => (clsId ? st.planner.classes.find((k) => k.id === clsId) : undefined));
   const mode = useStore((st) => st.settings.classLabel);
   const classes = useStore((st) => st.planner.classes);
   const [now, setNow] = useState(() => Date.now());
@@ -100,6 +101,8 @@ export default function FocusScreen() {
           <Txt kind="small" muted>Changes start with the next focus. Every fourth break is a long one.</Txt>
         </View>
 
+        {dndAvailable() ? <Quiet appActive={appActive} /> : null}
+
         <View style={{ alignSelf: 'stretch', maxWidth: 560, width: '100%', gap: S(1) }}>
           <Head title="This week" count={stats.sessions} />
           {stats.sessions ? stats.byClass.map(([id, v], i) => {
@@ -115,6 +118,31 @@ export default function FocusScreen() {
           {stats.sessions ? <Txt kind="small" muted style={{ marginTop: S(2) }}>{`${hours(stats.mins)} of focus since Monday.`}</Txt> : null}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+// Do Not Disturb while focusing: Android needs WakeUp allowed in "Do Not Disturb access" first
+function Quiet({ appActive }: { appActive: boolean }) {
+  const on = getDnd();
+  const access = appActive && dndAccess(); // read again on every return from Android's settings
+  // back from Android's settings: apply it to a focus that's already running
+  useEffect(() => { if (appActive) refreshDnd(); }, [appActive]);
+  return (
+    <View style={{ alignSelf: 'stretch', maxWidth: 560, width: '100%', gap: S(2) }}>
+      <Head title="Quiet" />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3), minHeight: 44 }}>
+        <Txt style={{ flex: 1, fontWeight: '500' }}>Do Not Disturb while focusing</Txt>
+        <Switch label="Do Not Disturb while focusing" value={on} onChange={(v) => { setDnd(v); if (v && !dndAccess()) openDndAccess(); }} />
+      </View>
+      {on && !access ? (
+        <View style={{ gap: S(2) }}>
+          <Txt kind="small" muted>Android needs you to allow WakeUp in “Do Not Disturb access” first.</Txt>
+          <Button small icon="settings" label="Allow in Android settings" onPress={() => openDndAccess()} />
+        </View>
+      ) : (
+        <Txt kind="small" muted>Calls and alarms you allow in Do Not Disturb still come through. It turns off for breaks, pauses and when you stop, even if WakeUp is closed.</Txt>
+      )}
     </View>
   );
 }

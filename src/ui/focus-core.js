@@ -9,7 +9,8 @@
   const LENGTHS = { focus: 25, short: 5, long: 15 }; // minutes
   const LONG_EVERY = 4;
 
-  const idle = () => ({ phase: 'idle', endsAt: null, left: null, taskId: null, done: 0 });
+  // classId: focus on a class with no task (from the class page); a task's own class wins when there is one
+  const idle = () => ({ phase: 'idle', endsAt: null, left: null, taskId: null, classId: null, done: 0 });
   const minutes = (phase, o = {}) => (o[phase] || LENGTHS[phase]) * 60e3;
 
   function clean(raw) {
@@ -18,10 +19,11 @@
     if (s.phase !== 'idle' && !Number.isFinite(s.endsAt) && !Number.isFinite(s.left)) return idle();
     s.done = Number.isInteger(s.done) && s.done >= 0 ? s.done : 0;
     s.taskId = typeof s.taskId === 'string' ? s.taskId : null;
+    s.classId = typeof s.classId === 'string' ? s.classId : null;
     return s;
   }
 
-  const start = (s, now, o, taskId = s.taskId) => ({ ...s, phase: 'focus', endsAt: now + minutes('focus', o), left: null, taskId });
+  const start = (s, now, o, taskId = s.taskId, classId = s.classId) => ({ ...s, phase: 'focus', endsAt: now + minutes('focus', o), left: null, taskId, classId: classId ?? null });
   const pause = (s, now) => (s.phase === 'idle' || s.left != null ? s : { ...s, left: Math.max(0, s.endsAt - now), endsAt: null });
   const resume = (s, now) => (s.left == null ? s : { ...s, endsAt: now + s.left, left: null });
   const stop = (s) => ({ ...idle(), done: s.done, taskId: s.taskId });

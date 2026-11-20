@@ -21,6 +21,15 @@ name: timetable
 - tapOn: { text: "Online", optional: true }
 - takeScreenshot: shots/tt-06-online
 - tapOn: { text: "Undo this change", optional: true }
+# the class page (v3 I5): from the meeting's details, then back
+# (picking a change closes the details, so open the meeting again)
+- tapOn: { text: "CSP1123.*", index: 0 }
+- tapOn: "Class page"
+- waitForAnimationToEnd
+- assertVisible: "Every week"
+- assertVisible: "Add a task for CSP1123"
+- takeScreenshot: shots/tt-07-class-page
+- tapOn: "Back"
 - tapOn: { text: "Close details", optional: true }
 # add a second class from the header
 - tapOn: "Add"

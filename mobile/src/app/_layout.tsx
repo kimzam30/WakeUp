@@ -10,7 +10,7 @@ import { useStore } from '../lib/store';
 import { startSync } from '../lib/sync';
 import { startUpdates } from '../lib/updater';
 import { startIcons } from '../lib/icons';
-import { listenForTaps, registerTopUp, rescheduleSoon } from '../lib/reminders';
+import { listenForTaps, registerTopUp, rescheduleSoon, startNotificationActions } from '../lib/reminders';
 import { useTheme } from '../ui/theme';
 import { useLayout } from '../ui/kit';
 import { GlassLayer } from '../ui/Glass';
@@ -26,7 +26,7 @@ export default function Root() {
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
     // after sync has restored your sign-in, so a logo found here uploads to your other devices
-    startSync().catch(() => {}).finally(startIcons);
+    startSync().catch(() => {}).finally(() => { startIcons(); startNotificationActions(); });
     startUpdates();
     rescheduleSoon();
     registerTopUp();
@@ -44,6 +44,7 @@ export default function Root() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="settings" options={wide ? { presentation: 'transparentModal', animation: 'fade' } : { presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="focus" options={{ presentation: 'fullScreenModal', animation: 'fade_from_bottom' }} />
+          <Stack.Screen name="classes/[id]" options={wide ? { presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } } : { animation: 'slide_from_right' }} />
           <Stack.Screen name="class" options={wide ? { presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } } : { presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
         <Stack.Protected guard={!onboarded}>

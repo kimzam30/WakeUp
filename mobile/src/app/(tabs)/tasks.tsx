@@ -234,6 +234,7 @@ function TaskEditor({ task, onClose, inline }: { task: Task; onClose: () => void
           })}
         </View>
       </View>
+      {d.classId && classes.some((k) => k.id === d.classId) ? <Button icon="cal" label="Class page" onPress={() => { const k = d.classId!; onClose(); router.push({ pathname: '/classes/[id]', params: { id: k } }); }} /> : null}
       {!d.done ? <Button icon="target" label={fs.phase !== 'idle' && fs.taskId === d.id ? 'Focusing on this task' : 'Focus on this task'} disabled={fs.phase !== 'idle' && fs.taskId === d.id} onPress={() => { focus.start(d.id); onClose(); router.push('/focus'); }} /> : null}
       <View style={{ flexDirection: 'row', gap: S(3), paddingTop: S(2) }}>
         <Button kind="danger" icon="trash" label="Delete" onPress={del} />

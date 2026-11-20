@@ -53,7 +53,7 @@ export default function Today() {
   const nowPart = next ? (
     <View style={{ gap: S(2) }}>
       <Caption>{isNow ? 'Now' : `Next · in ${countdown(next.startsAt - nowMs)}`}</Caption>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Open ${classLabel(next.cls, mode)}`} onPress={() => router.push({ pathname: '/class', params: { id: next.classId } })} style={{ gap: S(1) }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Open ${classLabel(next.cls, mode)}`} onPress={() => router.push({ pathname: '/classes/[id]', params: { id: next.classId } })} style={{ gap: S(1) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: S(3) }}>
           <View style={{ width: 6, alignSelf: 'stretch', borderRadius: 3, backgroundColor: next.cls.color }} />
           <View style={{ flex: 1, gap: 2 }}>
@@ -143,7 +143,7 @@ export default function Today() {
         {todays.map((o, i) => {
           const past = o.live && mins(o.end) <= nowMin;
           return (
-            <Line key={o.key} first={!i} onPress={() => router.push({ pathname: '/class', params: { id: o.classId } })}>
+            <Line key={o.key} first={!i} onPress={() => router.push({ pathname: '/classes/[id]', params: { id: o.classId } })}>
               <Txt kind="small" muted style={{ width: 48, fontVariant: ['tabular-nums'] }}>{fmtTime(o.start)}</Txt>
               <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: o.cls.color, opacity: o.live ? 1 : 0.4 }} />
               <View style={{ flex: 1, opacity: o.live && !past ? 1 : 0.5 }}>

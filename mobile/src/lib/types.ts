@@ -1,6 +1,6 @@
 export type Kind = 'lecture' | 'tutorial' | 'lab';
 export type Session = { id: string; kind: Kind; section: string; day: number; start: string; end: string; venue: string; mode: 'campus' | 'online'; link: string };
-export type ClassItem = { id: string; code: string; name: string; icon: string; color: string; sessions: Session[] };
+export type ClassItem = { id: string; code: string; name: string; icon: string; color: string; sessions: Session[]; course?: string; notes?: string }; // course: its Ebwise page
 export type NoteTag = 'quiz' | 'test' | 'consultation' | 'presentation' | 'bring' | 'other';
 export type Change = {
   id: string; type: 'cancelled' | 'online' | 'moved' | 'replacement' | 'note'; sessionId: string | null; classId: string | null; date: string; toDate: string | null;

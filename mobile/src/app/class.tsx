@@ -43,7 +43,10 @@ export default function ClassEditor() {
     if (!d.code.trim() && !d.name.trim()) { setError('Give the class a code or a name.'); return; }
     const bad = d.sessions.find((s) => s.end <= s.start);
     if (bad) { setError('Each session has to end after it starts.'); return; }
-    const clean = { ...d, code: d.code.trim(), name: d.name.trim() || d.code.trim() };
+    const course = (d.course ?? '').trim(); const notes = (d.notes ?? '').trim();
+    if (course && !/^https:\/\/\S+$/i.test(course)) { setError('The Ebwise link has to start with https://'); return; }
+    const { course: _c, notes: _n, ...rest } = d; // empty ones aren't kept
+    const clean = { ...rest, code: d.code.trim(), name: d.name.trim() || d.code.trim(), ...(course ? { course } : null), ...(notes ? { notes } : null) };
     setPlanner((p) => ({ classes: existing ? p.classes.map((k) => (k.id === d.id ? clean : k)) : [...p.classes, clean] }));
     setSaved(true);
     setTimeout(() => router.back(), 0);
@@ -71,6 +74,7 @@ export default function ClassEditor() {
             <Field label="Code" value={d.code} onChangeText={(code) => set({ code })} placeholder="e.g. CSP1123" maxLength={20} autoCapitalize="characters" autoFocus={!existing} />
             <Field label="Name" value={d.name} onChangeText={(name) => set({ name })} placeholder="e.g. Mini IT Project" maxLength={80} style={{ flexBasis: 220 }} />
           </View>
+          <Field label="Ebwise course (optional)" value={d.course ?? ''} onChangeText={(course) => set({ course })} placeholder="Paste the course page's link" keyboardType="url" autoCapitalize="none" autoCorrect={false} maxLength={2000} />
           <View style={{ gap: S(2) }}>
             <Txt kind="small" muted>Colour</Txt>
             <View style={{ flexDirection: 'row', gap: S(2), flexWrap: 'wrap' }}>
@@ -126,6 +130,8 @@ export default function ClassEditor() {
           ))}
           </View>
           <Button icon="plus" label="Add another session" onPress={() => set({ sessions: [...d.sessions, { ...blankSession(), kind: 'tutorial' }] })} />
+          <Field label="Notes (optional)" value={d.notes ?? ''} onChangeText={(notes) => set({ notes })} placeholder="Group members, lecturer, room, anything to remember" multiline maxLength={2000}
+            style={{ minHeight: 104, paddingTop: S(3), paddingBottom: S(3), textAlignVertical: 'top' }} />
           {existing ? <Button kind="danger" icon="trash" label="Delete class" onPress={remove} /> : null}
         </View>
       </ScrollView>

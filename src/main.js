@@ -1337,14 +1337,75 @@ function setAutostart(on) {
 
 function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
 
+// ---- the focus timer in the tray (v3, A3). The window's timer (ui/focus.js) reports its state; the tray shows a ring
+// on the icon (white for focus, green for a break, grey when paused) and the time left in its menu, with Pause/Resume
+// and Stop. On Linux the menu and the icon are what shows (a tray title is macOS only, and GNOME hides tooltips).
+const TRAY_ICON = path.join(__dirname, '..', 'build', 'icons', '32x32.png');
+let focusNow = { phase: 'idle' }; let focusTimer = null;
+function cleanFocus(v) {
+  if (!isObj(v) || !['idle', 'focus', 'short', 'long'].includes(v.phase)) return { phase: 'idle' };
+  const n = (x) => (Number.isFinite(x) ? x : null);
+  return { phase: v.phase, endsAt: n(v.endsAt), left: n(v.left), total: n(v.total) || 25 * 60e3, task: typeof v.task === 'string' ? v.task.slice(0, 60) : '' };
+}
+const FOCUS_NAME = { focus: 'Focus', short: 'Short break', long: 'Long break' };
+const focusLeft = (f, now = Date.now()) => (f.left != null ? f.left : Math.max(0, (f.endsAt ?? now) - now));
+function focusMenu() {
+  const f = focusNow;
+  if (f.phase === 'idle') return [{ label: 'Start focus', click: () => send('cmd', { name: 'focus', arg: 'start' }) }];
+  const paused = f.left != null;
+  const mins = Math.ceil(focusLeft(f) / 60e3);
+  const until = paused ? 'paused' : `until ${new Date(f.endsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  return [
+    { label: `${FOCUS_NAME[f.phase]} · ${mins} min left · ${until}`, enabled: false },
+    ...(f.task ? [{ label: f.task, enabled: false }] : []),
+    { label: paused ? 'Resume' : 'Pause', click: () => send('cmd', { name: 'focus', arg: paused ? 'resume' : 'pause' }) },
+    { label: 'Stop focus', click: () => send('cmd', { name: 'focus', arg: 'stop' }) },
+  ];
+}
+// the app icon with a progress ring drawn round its edge (raw pixels: no canvas in the main process)
+function focusIcon() {
+  const base = nativeImage.createFromPath(TRAY_ICON);
+  const f = focusNow;
+  if (f.phase === 'idle' || base.isEmpty()) return base;
+  const { width: w, height: h } = base.getSize(); const px = Buffer.from(base.toBitmap()); // BGRA
+  const done = Math.max(0, Math.min(1, 1 - focusLeft(f) / f.total));
+  const col = f.left != null ? [170, 170, 170] : f.phase === 'focus' ? [255, 255, 255] : [168, 211, 125]; // BGR: white, #7dd3a8 (the break green)
+  const cx = (w - 1) / 2; const cy = (h - 1) / 2; const r1 = w / 2; const r0 = r1 - Math.max(2.5, w / 10);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const d = Math.hypot(x - cx, y - cy); if (d < r0 || d > r1) continue;
+    const ang = (Math.atan2(x - cx, cy - y) / (2 * Math.PI) + 1) % 1; // 0 at the top, clockwise
+    const i = (y * w + x) * 4; const on = ang <= done;
+    const c = on ? col : [0, 0, 0]; const a = on ? 255 : 140; // the part still to go: a dark track
+    px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = a;
+  }
+  return nativeImage.createFromBitmap(px, { width: w, height: h });
+}
+function trayFocus() {
+  if (!tray) return;
+  try { tray.setImage(focusIcon()); } catch (e) { log('tray icon', e); }
+  const f = focusNow;
+  tray.setToolTip(f.phase === 'idle' ? APP : `${APP} · ${FOCUS_NAME[f.phase]} ${Math.ceil(focusLeft(f) / 60e3)} min left`);
+  buildTray();
+  clearInterval(focusTimer); focusTimer = null;
+  if (f.phase !== 'idle' && f.left == null) focusTimer = setInterval(trayFocus, 30e3); // the ring and the minutes move on
+}
+ipcMain.on('focus-state', (e, st) => { if (win && e.sender === win.webContents) { focusNow = cleanFocus(st); trayFocus(); } });
+// test profiles only: read and click the tray's focus items, and see the icon (test/e2e/tray.e2e.js)
+if (global.wakeupDebug) Object.assign(global.wakeupDebug, {
+  trayFocus: () => ({ menu: focusMenu().map((i) => i.label), icon: focusIcon().toPNG().toString('base64') }),
+  trayClick: (label) => focusMenu().find((i) => i.label === label)?.click?.(),
+});
+
 function buildTray() {
   try {
     if (!tray) {
-      tray = new Tray(nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icons', '32x32.png')));
+      tray = new Tray(focusIcon());
       tray.setToolTip(APP);
       tray.on('click', showWindow);
     }
     tray.setContextMenu(Menu.buildFromTemplate([
+      ...focusMenu(),
+      { type: 'separator' },
       { label: `Show ${APP}`, click: showWindow },
       { type: 'separator' },
       ...shownServices().slice(0, 9).map((s, i) => ({ label: s.name, accelerator: `Ctrl+${i + 1}`, click: () => { showWindow(); send('cmd', { name: 'open', arg: s.id }); } })),
@@ -1638,7 +1699,9 @@ ipcMain.handle('planner-import', async (e) => { // replaces the timetable; tasks
   } catch (err) { log('import failed', err); return { error: 'That file isn’t a WakeUp timetable.' }; }
 });
 // meeting links from the timetable: Teams links open in the Teams pane, others in the browser
-function openMeeting(url) { if (!isHttp(url)) return; if (isTeamsLink(url) && openInPane('teams', url)) return; openOut(url); }
+// a meeting link goes to Teams; an Ebwise page (a class's course, from the class page) to the Ebwise pane
+const isEbwisePage = (url) => { const e = byId.ebwise; return !!e && safeUrl(url)?.host === safeUrl(e.url)?.host; };
+function openMeeting(url) { if (!isHttp(url)) return; if (isTeamsLink(url) && openInPane('teams', url)) return; if (isEbwisePage(url) && openInPane('ebwise', url)) return; openOut(url); }
 ipcMain.on('open-link', (_e, url) => { if (typeof url === 'string') openMeeting(url); });
 
 // ---- class reminders: one timer, re-armed for the next class (and at least every 30 min, so sleep/suspend can't skew it)

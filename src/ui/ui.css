@@ -572,6 +572,21 @@ kbd { display: inline-block; min-width: 1.3846rem; padding: 1px 0.3846rem; borde
 .clash { margin: 0.4615rem 0 0; min-height: 0; font-size: 0.9231rem; color: var(--warn); }
 .clash:empty { display: none; }
 .occ-tasks { margin: 0.9231rem 1.3846rem 0; display: flex; flex-direction: column; gap: 2px; }
+/* the class page (v3, I5): a scrolling card in the same sheet as a date's details */
+.sheet-card.hub { max-height: calc(100vh - 6rem); overflow-y: auto; padding-bottom: 1.2308rem; }
+.hub-next { display: flex; flex-direction: column; gap: 0.2308rem; margin: 0.9231rem 1.3846rem 0; padding: 0.9231rem 1.0769rem; border-radius: 0.9231rem; background: var(--sunken); }
+.hub-next .lbl { font-size: 0.8077rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.hub-next b { font-size: 1.2308rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hub-next span:not(.lbl) { color: var(--muted); }
+.hub-next .warn { color: var(--warn); font-weight: 600; }
+.hub-acts { display: flex; flex-wrap: wrap; gap: 0.4615rem; align-items: center; margin: 0.9231rem 1.3846rem 0; }
+.hub-sec { margin: 0 1.3846rem; }
+.hub-notes { margin: 0; white-space: pre-line; line-height: 1.5; }
+.hub .rows small { display: block; color: var(--muted); font-size: 0.9231rem; }
+.hub-day { width: 3rem; flex: none; font-size: 0.8462rem; font-weight: 600; color: var(--muted); text-transform: uppercase; }
+.hub > p.muted { margin: 1.0769rem 1.3846rem 0; }
+.sheet-card textarea[data-f="notes"] { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 0.4615rem 0.6154rem; border: 1px solid var(--line-strong); border-radius: var(--r); outline: none; color: var(--text); background: var(--bg); }
+.sheet-card textarea[data-f="notes"]:focus { border-color: var(--accent); box-shadow: 0 0 0 0.2308rem var(--accent-soft); }
 .ot-head { display: flex; gap: 0.4615rem; font-size: 0.8846rem; font-weight: 500; color: var(--faint); margin-bottom: 0.3077rem; }
 .ot-head .n { color: var(--accent-text); font-variant-numeric: tabular-nums; }
 .ot-row { display: flex; align-items: center; gap: 0.6154rem; min-height: 2.1538rem; }

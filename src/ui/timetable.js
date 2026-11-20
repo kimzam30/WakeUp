@@ -1,5 +1,5 @@
 'use strict';
-/* global hub, PL, WEEK_START, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, fmtTime, classLabel, classSub, classFull, classIcon, classSvg, emptyArt, KIND, DAYS, DAYS_LONG, MONTHS, btnSvg */
+/* global hub, PL, WEEK_START, Planner, savePlanner, esc, h, $, $$, paint, newId, fmtDate, fmtTime, classLabel, classSub, classFull, classIcon, classSvg, emptyArt, KIND, DAYS, DAYS_LONG, MONTHS, btnSvg, Focus */
 /* eslint-disable no-unused-vars */
 // Timetable: the semester's weekly classes, with one-off changes (cancelled, online, moved, replacement).
 
@@ -153,6 +153,35 @@ function TimetableView(root) {
       <input class="ot-add" data-task-for="${esc(c.id)}" data-due="${esc(next || '')}" maxlength="300" placeholder="Add a task${next ? `, due next class (${esc(fmtDate(next))})` : ''}" aria-label="Add a task for this class"></div>`;
   }
 
+  // The class page (v3, I5, option A): next meeting, Join / Ebwise / Focus, what's due (with quick add), your notes, the
+  // weekly sessions and this week's focus. One-off changes to a date stay in the date's panel (type 'occ').
+  function classPageHtml(c) {
+    if (!c) return '';
+    const today = Planner.today();
+    const next = Planner.upcoming(PL, new Date(), 28).find((o) => o.classId === c.id);
+    const join = next?.mode === 'online' && next.link ? next.link : c.sessions.find((x) => x.mode === 'online' && x.link)?.link;
+    const when = next ? (next.date === today ? 'Today' : next.date === Planner.addDays(today, 1) ? 'Tomorrow' : fmtDate(next.date, true)) : '';
+    const wk = typeof Focus === 'undefined' ? null : Focus.week().byClass.find(([k]) => k === c.id)?.[1];
+    const mins = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+    const order = (d) => (d - WEEK_START + 7) % 7;
+    const sessions = [...c.sessions].sort((a, b) => order(a.day) - order(b.day) || (a.start < b.start ? -1 : 1));
+    return `<div class="sheet-card occ hub" data-c="${esc(c.color)}" role="dialog" aria-label="${esc(classLabel(c))}, class page">
+      <div class="occ-hero"><span class="occ-ico">${classIcon(c)}</span><div class="occ-title"><h3>${esc(classLabel(c))}${classSub(c) ? ` <span>${esc(classSub(c))}</span>` : ''}</h3><p>${esc(c.code && c.name !== c.code ? c.name : '')}</p></div>
+        <button class="hbtn" data-act="close" aria-label="Close">${btnSvg('close')}</button></div>
+      <div class="hub-next">${next ? `<span class="lbl">Next · ${esc(when)}</span><b>${fmtTime(next.start)} – ${fmtTime(next.end)}</b><span>${esc([KIND[next.kind], next.section, next.mode === 'online' ? 'Online' : next.venue || 'No venue set'].filter(Boolean).join(' · '))}</span>${next.notes?.length ? `<span class="warn">${esc(Planner.notesLine(next.notes))}</span>` : ''}` : '<span class="muted">No meetings in the next four weeks.</span>'}</div>
+      <div class="hub-acts">
+        ${join ? `<button class="btn small primary" data-act="join" data-link="${esc(join)}">${btnSvg('video')}Join</button>` : ''}
+        ${c.course ? `<button class="btn small" data-act="join" data-link="${esc(c.course)}">${btnSvg('link')}Open in Ebwise</button>` : ''}
+        <button class="btn small" data-act="focus-class" data-id="${esc(c.id)}">${btnSvg('target')}Focus</button>
+        <span class="grow"></span><button class="btn small" data-act="edit-class" data-id="${esc(c.id)}">${btnSvg('edit')}Edit class</button>
+      </div>
+      ${classTasks(c)}
+      <div class="hub-sec"><h4>Notes</h4>${c.notes ? `<p class="hub-notes">${esc(c.notes)}</p>` : '<p class="muted small">Group members, lecturer, room… Add notes in Edit class.</p>'}</div>
+      <div class="hub-sec"><h4>Every week</h4><ul class="rows">${sessions.map((x) => `<li><span class="hub-day">${DAYS[x.day]}</span><span class="grow">${esc(KIND[x.kind])} · ${fmtTime(x.start)} – ${fmtTime(x.end)}<small>${esc([x.section, x.mode === 'online' ? 'Online' : x.venue || 'No venue set'].filter(Boolean).join(' · '))}</small></span>${x.mode === 'online' && x.link ? `<button class="btn small" data-act="join" data-link="${esc(x.link)}">Join</button>` : ''}</li>`).join('')}</ul></div>
+      <p class="muted small">${wk ? `Focus this week: ${mins(wk.mins)} in ${wk.sessions} session${wk.sessions === 1 ? '' : 's'}` : 'No focus on this class yet this week.'}${c.course ? '' : ' Paste its Ebwise course link in Edit class.'}</p>
+    </div>`;
+  }
+
   function sheetHtml() {
     const s = st.sheet;
     if (s.type === 'occ') {
@@ -193,14 +222,16 @@ function TimetableView(root) {
           ${o.status === 'replacement' ? '<button class="btn small danger" data-act="undo">Remove replacement</button>' : ''}
           ${o.status === 'moved-in' ? '<button class="btn small" data-act="undo">Undo move</button>' : ''}
           ${changeable ? `<span class="lbl">Just this date</span><button class="btn small" data-act="cancel-occ">Cancelled</button>${o.status === 'normal' ? '<button class="btn small" data-act="sub-online">Online</button>' : ''}<button class="btn small" data-act="sub-move">Postpone / move…</button>` : ''}
-          <span class="grow"></span><button class="btn small" data-act="sub-replace">Add replacement…</button><button class="btn small" data-act="edit-class" data-id="${esc(c.id)}">${btnSvg('edit')}Edit class</button>
+          <span class="grow"></span><button class="btn small" data-act="sub-replace">Add replacement…</button><button class="btn small primary" data-act="class-page" data-id="${esc(c.id)}">${btnSvg('cal')}Class page</button><button class="btn small" data-act="edit-class" data-id="${esc(c.id)}">${btnSvg('edit')}Edit class</button>
         </div>`}</div>`;
     }
+    if (s.type === 'hub') return classPageHtml(PL.classes.find((k) => k.id === s.id));
     if (s.type === 'class') {
       const d = s.draft;
       return `<form class="sheet-card editor" data-c="${esc(d.color)}" novalidate role="dialog" aria-label="${s.isNew ? 'New class' : 'Edit class'}">
         <div class="ed-head"><h3>${s.isNew ? 'New class' : 'Edit class'}</h3><button type="button" class="hbtn" data-act="close" aria-label="Close">${btnSvg('close')}</button></div>
         <div class="row2">${field('Code', inp('code', d.code, 'maxlength="20" placeholder="e.g. CSP1123"'))}${field('Name', inp('name', d.name, 'maxlength="80" placeholder="e.g. Mini IT Project"'))}</div>
+        ${field('Ebwise course (optional)', inp('course', d.course, 'type="url" maxlength="2000" placeholder="Paste the course page\'s link"'), 'wide')}
         <div class="pick-row"><span class="lbl">Icon</span><div class="icons" data-c="${esc(d.color)}">${CLASS_ICONS.map((i) => `<button type="button" data-icon="${i}" aria-pressed="${d.icon === i}" aria-label="Icon: ${i}" title="${i}">${classSvg(i)}</button>`).join('')}</div></div>
         <div class="pick-row"><span class="lbl">Colour</span><div class="colors">${CLASS_COLORS.map((col) => `<button type="button" data-color="${col}" data-c="${col}" aria-pressed="${d.color === col}" aria-label="Colour ${col}"></button>`).join('')}</div></div>
         <h4>Weekly sessions</h4>
@@ -217,6 +248,7 @@ function TimetableView(root) {
             ${x.mode === 'online' ? inp(`s.${i}.link`, x.link, 'type="url" class="grow" placeholder="Meeting link, e.g. https://teams.microsoft.com/…" aria-label="Meeting link"') : inp(`s.${i}.venue`, x.venue, 'class="grow" maxlength="80" placeholder="Venue, e.g. CQAR2004" aria-label="Venue"')}
           </div></div>`).join('')}</div>
         <button type="button" class="btn small" data-act="add-sess">${btnSvg('plus')}Add a lecture, tutorial or lab</button>
+        ${field('Notes (optional)', `<textarea data-f="notes" maxlength="2000" rows="3" placeholder="Group members, lecturer, room, anything to remember">${esc(d.notes || '')}</textarea>`, 'wide')}
         <p class="form-error" role="alert">${esc(s.error || '')}</p>
         <div class="actions left"><button type="submit" class="btn primary">${s.isNew ? 'Add class' : 'Save'}</button><button type="button" class="btn" data-act="close">Cancel</button>
           <span class="grow"></span>${s.isNew ? '' : s.confirmDel ? '<span class="lbl">Delete this class and its changes?</span><button type="button" class="btn small danger" data-act="del-yes">Delete</button><button type="button" class="btn small" data-act="del-no">Keep</button>' : '<button type="button" class="btn small danger" data-act="del-class">Delete class</button>'}</div>
@@ -282,6 +314,8 @@ function TimetableView(root) {
       case 'this': st.first = Planner.startOfWeek(Planner.today(), WEEK_START); render(); break;
       case 'add-class': editClass(null); break;
       case 'edit-class': editClass(t.dataset.id); break;
+      case 'class-page': openSheet({ type: 'hub', id: t.dataset.id }); break;
+      case 'focus-class': if (typeof Focus !== 'undefined') Focus.act('start', null, t.dataset.id); closeSheet(); globalThis.showNotice?.({ id: 'focus', kind: 'info', title: 'Focus started', detail: 'It shows in Tasks and in the tray.' }); break;
       case 'semester': openSheet({ type: 'semester', draft: structuredClone(PL.semester) }); break;
       case 'close': closeSheet(); break;
       case 'join': hub.openLink(t.dataset.link); break;
@@ -355,9 +389,11 @@ function TimetableView(root) {
       const d = s.draft;
       s.error = !d.code.trim() && !d.name.trim() ? 'Give the class a code or a name.'
         : d.sessions.some((x) => !x.start || !x.end || x.end <= x.start) ? 'Each session needs an end time after its start time.'
-          : d.sessions.some((x) => x.mode === 'online' && x.link && !isLink(x.link)) ? 'Meeting links need to be full https:// addresses.' : '';
+          : d.sessions.some((x) => x.mode === 'online' && x.link && !isLink(x.link)) ? 'Meeting links need to be full https:// addresses.'
+            : (d.course || '').trim() && !isLink(d.course.trim()) ? 'The Ebwise link has to start with https://' : '';
       if (s.error) { renderSheet(); return; }
-      const clean = { ...d, code: d.code.trim(), name: d.name.trim() || d.code.trim() };
+      const { course, notes, ...rest } = d; const co = (course || '').trim(); const no = (notes || '').trim(); // empty ones aren't kept
+      const clean = { ...rest, code: d.code.trim(), name: d.name.trim() || d.code.trim(), ...(co ? { course: co } : null), ...(no ? { notes: no } : null) };
       savePlanner({ classes: s.isNew ? [...PL.classes, clean] : PL.classes.map((c) => (c.id === d.id ? clean : c)) });
       if (s.isNew && !PL.semester.start) { openSheet({ type: 'semester', draft: structuredClone(PL.semester), error: '' }); return; } // first class: next, the semester dates
       closeSheet();

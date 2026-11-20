@@ -14,6 +14,8 @@
   const YMD = /^\d{4}-\d{2}-\d{2}$/; const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
   const ymd = (v) => (typeof v === 'string' && YMD.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
   const hm = (v) => (typeof v === 'string' && HM.test(v) ? v : null);
+  // longer free text that keeps its line breaks (class notes)
+  const para = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, max);
   const httpsLink = (v) => { const u = safeUrl(text(v, 2000)); return u && u.protocol === 'https:' ? u.href : ''; };
   const ident = (v, prefix) => (typeof v === 'string' && /^[a-z0-9-]{1,40}$/.test(v) ? v : `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const emptyPlanner = () => ({ semester: { name: '', start: null, end: null, breaks: [] }, classes: [], changes: [], tasks: [] });
@@ -42,6 +44,10 @@
       return {
         id, code: text(c.code, 20), name: text(c.name, 80) || text(c.code, 20) || 'Class',
         icon: Planner.classIconKey(c.icon), color: /^#[0-9a-f]{6}$/i.test(c.color) ? Planner.classColor(c.color) : '#2f6fde', sessions,
+        // the class page (v3, I5): its Ebwise course and your notes. Only there when filled in, so older classes keep
+        // their shape (and don't re-sync); older versions ignore them.
+        ...(httpsLink(c.course) ? { course: httpsLink(c.course) } : null),
+        ...(para(c.notes, 2000) ? { notes: para(c.notes, 2000) } : null),
       };
     });
     const classIds = new Set(classes.map((c) => c.id));

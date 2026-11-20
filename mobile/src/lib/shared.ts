@@ -53,11 +53,11 @@ export const Update: {
 } = require('../../../src/shared/update-core.js');
 
 export type FocusPhase = 'idle' | 'focus' | 'short' | 'long';
-export type FocusState = { phase: FocusPhase; endsAt: number | null; left: number | null; taskId: string | null; done: number };
+export type FocusState = { phase: FocusPhase; endsAt: number | null; left: number | null; taskId: string | null; classId: string | null; done: number };
 type Lengths = Partial<Record<'focus' | 'short' | 'long', number>>;
 export const Focus: {
   LENGTHS: Record<'focus' | 'short' | 'long', number>; idle: () => FocusState; clean: (raw: unknown) => FocusState;
-  start: (s: FocusState, now: number, o?: Lengths, taskId?: string | null) => FocusState; pause: (s: FocusState, now: number) => FocusState;
+  start: (s: FocusState, now: number, o?: Lengths, taskId?: string | null, classId?: string | null) => FocusState; pause: (s: FocusState, now: number) => FocusState;
   resume: (s: FocusState, now: number) => FocusState; stop: (s: FocusState) => FocusState; next: (s: FocusState, now: number, o?: Lengths, skip?: boolean) => FocusState; skip: (s: FocusState, now: number, o?: Lengths) => FocusState;
   tick: (s: FocusState, now: number, o?: Lengths) => { state: FocusState; ended: FocusPhase | null };
   remaining: (s: FocusState, now: number) => number; paused: (s: FocusState) => boolean; label: Record<FocusPhase, string>; clock: (ms: number) => string;

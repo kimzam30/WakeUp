@@ -21,7 +21,7 @@ const Focus = (() => {
   let log = (read(`${KEY}.log`, []) || []).filter((x) => x && Date.now() - x.at < 60 * 864e5);
   function record(at) {
     const t = PL.tasks.find((x) => x.id === s.taskId);
-    log = [...log, { at, mins: L.focus, taskId: s.taskId, classId: t?.classId ?? null }]; write(`${KEY}.log`, log);
+    log = [...log, { at, mins: L.focus, taskId: s.taskId, classId: t?.classId ?? s.classId ?? null }]; write(`${KEY}.log`, log);
   }
   // this week, from Monday
   function week() {
@@ -34,7 +34,12 @@ const Focus = (() => {
   let timer = null;
   const views = new Set();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* private storage off: the timer still runs */ } };
-  const set = (next) => { s = next; save(); schedule(); draw(); };
+  // the tray shows the timer too (main.js: trayFocus); it reads the time from endsAt, so this only runs on changes
+  function report() {
+    const t = PL.tasks.find((x) => x.id === s.taskId && !x.done);
+    try { globalThis.hub?.focusState?.({ phase: s.phase, endsAt: s.endsAt, left: s.left, total: (L[s.phase] || L.focus) * 60e3, task: t ? t.text : '' }); } catch { /* no tray */ }
+  }
+  const set = (next) => { s = next; save(); schedule(); draw(); report(); };
 
   function tell(ended) {
     const t = PL.tasks.find((x) => x.id === s.taskId);
@@ -48,7 +53,7 @@ const Focus = (() => {
     if (s.phase === 'idle' || FocusCore.paused(s)) return;
     timer = setInterval(() => {
       const ends = s.endsAt; const r = FocusCore.tick(s, Date.now(), L);
-      if (r.ended) { if (r.ended === 'focus') record(ends); s = r.state; save(); tell(r.ended); }
+      if (r.ended) { if (r.ended === 'focus') record(ends); s = r.state; save(); tell(r.ended); report(); }
       if (!document.hidden || r.ended) draw(); // nobody's looking: keep time, skip the redraw
     }, 1000);
   }
@@ -113,9 +118,9 @@ const Focus = (() => {
   // the page's security policy forbids inline styles, so the ring's progress is set from here
   const fill = (el) => { const r = $('.fc-ring', el); if (r) r.style.setProperty('--p', r.dataset.p); };
   function draw() { for (const el of views) if (el.isConnected) { el.innerHTML = html(); fill(el); } else views.delete(el); drawPanel(); }
-  function act(a, taskId) {
+  function act(a, taskId, classId) { // classId: focus on a class with no task (the class panel)
     const now = Date.now();
-    if (a === 'start') set(FocusCore.start(s, now, L, taskId ?? s.taskId));
+    if (a === 'start') set(FocusCore.start(s, now, L, taskId ?? s.taskId, classId !== undefined ? classId : taskId !== undefined ? null : s.classId));
     if (a === 'pause') set(FocusCore.pause(s, now));
     if (a === 'resume') set(FocusCore.resume(s, now));
     if (a === 'skip') set(FocusCore.skip(s, now, L));
@@ -130,6 +135,6 @@ const Focus = (() => {
   if (localStorage.getItem(`${KEY}.day`) !== day) { s = { ...s, done: 0 }; save(); try { localStorage.setItem(`${KEY}.day`, day); } catch { /* ignore */ } }
   // catch up on phases that ended while WakeUp was closed, without a pile of notices
   for (let i = 0; i < 20; i++) { const ends = s.endsAt; const r = FocusCore.tick(s, Date.now(), L); if (!r.ended) break; if (r.ended === 'focus') record(ends); s = r.state; }
-  save(); schedule();
+  save(); schedule(); report();
   return { mount, act, state: () => s, lengths: () => L, week, taskId: () => (s.phase === 'idle' ? null : s.taskId) };
 })();

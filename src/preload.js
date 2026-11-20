@@ -8,6 +8,7 @@ if (location.protocol === 'file:' && /\/ui\/(index|pop|link)\.html$/.test(locati
   onStatus: listen('status'),
   onUnread: listen('unread'),
   onCmd: listen('cmd'),
+  focusState: (st) => ipcRenderer.send('focus-state', st), // the focus timer, for the tray icon and menu
   onFocused: listen('focused'),
   onSettings: listen('settings'),
   onDownload: listen('download'),

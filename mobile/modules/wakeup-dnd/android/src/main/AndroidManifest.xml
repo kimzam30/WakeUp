@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- lets the user allow WakeUp in Settings > Do Not Disturb access; nothing changes until they do -->
+  <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+  <application>
+    <receiver android:name="expo.modules.wakeupdnd.DndRestoreReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="expo.modules.wakeupdnd.RESTORE" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
