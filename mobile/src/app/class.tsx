@@ -1,6 +1,6 @@
 // Add or edit a class: a modal with its own Cancel / Save. Asks before throwing away unsaved changes.
 // Phones: full screen. Tablets: a centred dialog over the timetable, with the weekly sessions in two columns.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation, usePreventRemove } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,13 +28,16 @@ export default function ClassEditor() {
   });
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [leave, setLeave] = useState<Parameters<typeof nav.dispatch>[0] | null>(null);
   const dirty = !saved && JSON.stringify(d) !== JSON.stringify(existing ?? null) && (!!d.code.trim() || !!d.name.trim() || !!existing);
   usePreventRemove(dirty, ({ data }) => {
     Alert.alert('Discard changes?', 'Your changes to this class aren’t saved yet.', [
       { text: 'Keep editing', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => nav.dispatch(data.action) },
+      // turn the guard off first, then leave: dispatching while it's still on asked again forever
+      { text: 'Discard', style: 'destructive', onPress: () => { setSaved(true); setLeave(data.action); } },
     ]);
   });
+  useEffect(() => { if (leave && saved) nav.dispatch(leave); }, [leave, saved, nav]);
   const mode = useStore((s) => s.settings.classLabel);
   const set = (p: Partial<ClassItem>) => { setD({ ...d, ...p }); setError(''); };
   const setS = (i: number, p: Partial<Session>) => set({ sessions: d.sessions.map((s, j) => (j === i ? { ...s, ...p } : s)) });

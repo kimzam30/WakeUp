@@ -18,6 +18,7 @@ import { ClassTasks } from '../../ui/ClassTasks';
 import { useToday } from '../../lib/hooks';
 import type { Change, Kind, Occurrence, Semester } from '../../lib/types';
 import { ClassNotes } from '../../ui/ClassNotes';
+import { undoToast } from '../../ui/Toast';
 
 const openLink = (url: string) => Linking.openURL(url).catch(() => {});
 
@@ -267,11 +268,19 @@ function OccurrenceBody({ o, onDone }: { o: Occurrence; onDone: () => void }) {
   const set = (patch: Partial<Form>) => { setF((x) => ({ ...x, ...patch })); setErr(''); };
   // one change per class session per date; replacements are separate entries
   const setChange = (change: Partial<Change> | null) => {
+    let removed: Change[] = []; const added = change ? Schema.newId('x') : null;
     setPlanner((p) => {
       const gone = !change && (o.status === 'replacement' || o.status === 'moved-in'); // its notes go with it
       const rest = p.changes.filter((x) => x.id !== o.change?.id && !(x.sessionId && x.sessionId === o.sessionId && x.date === o.date && x.type !== 'replacement' && x.type !== 'note') && !(gone && x.type === 'note' && x.ref === o.ref));
-      return { changes: change ? [...rest, { id: Schema.newId('x'), ...NO_CHANGE, date: o.date, ...change } as Change] : rest };
+      removed = p.changes.filter((x) => !rest.includes(x));
+      return { changes: change ? [...rest, { id: added!, ...NO_CHANGE, date: o.date, ...change } as Change] : rest };
     });
+    // cancelling a class can be undone from the toast (v3 A7): drop the new change, put back what it replaced
+    if (change?.type === 'cancelled') {
+      undoToast(`Cancelled: ${classLabel(o.cls, mode)}, ${fmtDate(o.date)}`, () => setPlanner((p) => ({
+        changes: [...p.changes.filter((x) => x.id !== added), ...removed.filter((r) => !p.changes.some((x) => x.id === r.id))],
+      })), 'ban');
+    }
     onDone();
   };
   const open = (kind: 'online' | 'move' | 'replace') => {

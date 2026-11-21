@@ -74,7 +74,7 @@ export default function FocusScreen() {
         </View>
 
         <View style={{ alignItems: 'center', gap: S(1), minHeight: 48 }}>
-          {task ? <Txt kind="headline" numberOfLines={2} style={{ textAlign: 'center' }}>{task.text}</Txt> : <Txt muted>{s.phase === 'idle' ? 'Pick a task in Tasks to focus on it, or just start.' : 'Focusing'}</Txt>}
+          {task ? <Txt kind="headline" numberOfLines={2} style={{ textAlign: 'center' }}>{task.text}</Txt> : <Txt muted>{s.phase === 'idle' ? 'Pick a task in Tasks to focus on it, or just start.' : brk ? 'On a break' : 'Focusing'}</Txt>}
           {cls ? <ClassTag color={cls.color} label={classLabel(cls, mode)} /> : null}
         </View>
 

@@ -48,11 +48,17 @@ const listeners = new Set<() => void>();
 const emit = () => { for (const l of listeners) l(); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 
-// a new day starts the count again
-const day = new Date().toDateString();
-if (kv.get<string>('focus.day', '') !== day) { s = { ...s, done: 0 }; kv.set('focus.day', day); }
+// a new day starts the count again: checked at load, on every change and every tick, so an app left open overnight resets too
+function newDay() {
+  const day = new Date().toDateString();
+  if (kv.get<string>('focus.day', '') === day) return;
+  kv.set('focus.day', day);
+  if (s.done) { s = { ...s, done: 0 }; kv.set(KEY, s); emit(); }
+}
+newDay();
 // catch up on phases that ended while the app was closed
 function catchUp() {
+  newDay();
   let moved = false;
   for (let i = 0; i < 20; i++) { const ended = s.endsAt; const r = Focus.tick(s, Date.now(), lengths); if (!r.ended) break; if (r.ended === 'focus' && ended) record(ended); s = r.state; moved = true; }
   if (moved) { kv.set(KEY, s); emit(); notify().catch(() => {}); }
@@ -110,13 +116,13 @@ function set(next: FocusState) { s = next; kv.set(KEY, s); emit(); quiet(); noti
 
 export const focus = {
   // a task, or (from the class page) a class with no task; a new task drops the old class
-  start: (taskId?: string | null, classId?: string | null) => set(Focus.start(s, Date.now(), lengths, taskId === undefined ? s.taskId : taskId, classId !== undefined ? classId : taskId !== undefined ? null : s.classId)),
-  pause: () => set(Focus.pause(s, Date.now())),
-  resume: () => set(Focus.resume(s, Date.now())),
-  skip: () => set(Focus.skip(s, Date.now(), lengths)),
-  stop: () => set(Focus.stop(s)),
+  start: (taskId?: string | null, classId?: string | null) => { newDay(); set(Focus.start(s, Date.now(), lengths, taskId === undefined ? s.taskId : taskId, classId !== undefined ? classId : taskId !== undefined ? null : s.classId)); },
+  pause: () => { newDay(); set(Focus.pause(s, Date.now())); },
+  resume: () => { newDay(); set(Focus.resume(s, Date.now())); },
+  skip: () => { newDay(); set(Focus.skip(s, Date.now(), lengths)); },
+  stop: () => { newDay(); set(Focus.stop(s)); },
   // called every second by the focus screen and card while they're on screen
-  tick: () => { const ended = s.endsAt; const r = Focus.tick(s, Date.now(), lengths); if (r.ended) { if (r.ended === 'focus' && ended) record(ended); set(r.state); } return r.ended; },
+  tick: () => { newDay(); const ended = s.endsAt; const r = Focus.tick(s, Date.now(), lengths); if (r.ended) { if (r.ended === 'focus' && ended) record(ended); set(r.state); } return r.ended; },
   total: (phase: FocusState['phase']) => (phase === 'idle' ? 1 : lengths[phase] * 60e3),
 };
 export const useFocus = () => useSyncExternalStore(subscribe, () => s, () => s);
